@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"larascope/internal/config"
 )
 
 func updateWithKey(t *testing.T, m Model, msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -67,6 +70,80 @@ func TestViewWithZeroSize(t *testing.T) {
 	for _, name := range tabNames {
 		if !strings.Contains(view, name) {
 			t.Errorf("view does not contain tab name %q", name)
+		}
+	}
+}
+
+func TestStatusLine(t *testing.T) {
+	fullSettings := config.Settings{
+		Root:            "/srv/app",
+		LogChannel:      "stack",
+		QueueConnection: "redis",
+		DBConnection:    "mysql",
+		DBHost:          "127.0.0.1",
+		DBPort:          "3306",
+		DBDatabase:      "app",
+	}
+
+	tests := []struct {
+		name     string
+		settings config.Settings
+		err      error
+		want     string
+	}{
+		{
+			name: "not Laravel",
+			err:  config.ErrNotLaravel,
+			want: "Not a Laravel project (no artisan found)",
+		},
+		{
+			name: "wrapped not Laravel",
+			err:  fmt.Errorf("load config: %w", config.ErrNotLaravel),
+			want: "Not a Laravel project (no artisan found)",
+		},
+		{
+			name: "generic error",
+			err:  errors.New("permission denied"),
+			want: "Config error: permission denied",
+		},
+		{
+			name:     "full settings",
+			settings: fullSettings,
+			want:     "root: /srv/app  log: stack  queue: redis  db: mysql://127.0.0.1:3306/app",
+		},
+		{
+			name:     "root only",
+			settings: config.Settings{Root: "/srv/app"},
+			want:     "root: /srv/app",
+		},
+		{
+			name: "zero settings",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := New().WithConfig(tt.settings, tt.err).statusLine(); got != tt.want {
+				t.Errorf("statusLine() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestViewWithConfig(t *testing.T) {
+	settings := config.Settings{
+		Root:         "/srv/app",
+		DBConnection: "mysql",
+		DBHost:       "127.0.0.1",
+		DBPort:       "3306",
+		DBDatabase:   "app",
+	}
+
+	view := New().WithConfig(settings, nil).View()
+	for _, want := range []string{"root: /srv/app", "mysql://127.0.0.1:3306/app"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view does not contain %q", want)
 		}
 	}
 }
