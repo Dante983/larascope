@@ -138,6 +138,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.active == TabLogs && !m.showHelp && !m.detail {
 				m = m.jumpCursor(len(m.entries) - 1)
 			}
+		case "pgup":
+			if m.active == TabLogs && !m.showHelp && !m.detail {
+				m = m.moveCursor(-maxLogLines)
+			}
+		case "pgdown":
+			if m.active == TabLogs && !m.showHelp && !m.detail {
+				m = m.moveCursor(maxLogLines)
+			}
 		}
 	}
 
@@ -191,7 +199,7 @@ func (m Model) centered() bool {
 
 func (m Model) body() string {
 	if m.showHelp {
-		return "tab: next tab\nshift+tab: previous tab\n1/2/3: select tab\nup/k, down/j: move in logs\ng/G: first/last entry\nenter: toggle entry detail\nesc: back to list\n?: toggle help\nq: quit"
+		return "tab: next tab\nshift+tab: previous tab\n1/2/3: select tab\nup/k, down/j: move in logs\ng/G: first/last entry\npgup/pgdown: page up/down\nenter: toggle entry detail\nesc: back to list\n?: toggle help\nq: quit"
 	}
 
 	switch m.active {

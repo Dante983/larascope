@@ -300,6 +300,76 @@ func TestLogCursorJumpsToFirstAndLastEntry(t *testing.T) {
 	}
 }
 
+func TestLogCursorPagesAndClamps(t *testing.T) {
+	m := New().WithLogs(logEntries(50), nil)
+
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyPgUp})
+	if m.cursor != 29 {
+		t.Fatalf("cursor after pgup = %d, want 29", m.cursor)
+	}
+
+	for range 2 {
+		m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyPgUp})
+	}
+	if m.cursor != 0 {
+		t.Fatalf("cursor after three pgup keys = %d, want 0", m.cursor)
+	}
+
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.cursor != 20 {
+		t.Errorf("cursor after pgdown = %d, want 20", m.cursor)
+	}
+}
+
+func TestLogCursorPageDownAtLastEntryStaysAtLast(t *testing.T) {
+	m := New().WithLogs(logEntries(50), nil)
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.cursor != 49 {
+		t.Errorf("cursor after pgdown at last entry = %d, want 49", m.cursor)
+	}
+}
+
+func TestLogCursorPagesClampWithFewerThanOnePage(t *testing.T) {
+	m := New().WithLogs(logEntries(5), nil)
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyPgUp})
+	if m.cursor != 0 {
+		t.Fatalf("cursor after pgup = %d, want 0", m.cursor)
+	}
+
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.cursor != 4 {
+		t.Errorf("cursor after pgdown = %d, want 4", m.cursor)
+	}
+}
+
+func TestLogCursorPageKeysWithEmptyEntries(t *testing.T) {
+	for _, key := range []tea.KeyType{tea.KeyPgUp, tea.KeyPgDown} {
+		t.Run(tea.KeyMsg{Type: key}.String(), func(t *testing.T) {
+			m := New().WithLogs(nil, nil)
+			m, _ = updateWithKey(t, m, tea.KeyMsg{Type: key})
+			if m.cursor != 0 {
+				t.Errorf("cursor after %s with no entries = %d, want 0", tea.KeyMsg{Type: key}.String(), m.cursor)
+			}
+		})
+	}
+}
+
+func TestLogCursorPageKeyIgnoredInDetail(t *testing.T) {
+	m := New().WithLogs(logEntries(50), nil)
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyPgUp})
+	if m.cursor != 49 {
+		t.Errorf("cursor after pgup in detail = %d, want 49", m.cursor)
+	}
+}
+
+func TestHelpListsLogCursorPageKeys(t *testing.T) {
+	m, _ := updateWithKey(t, New(), runeKey("?"))
+	if !strings.Contains(m.View(), "pgup/pgdown: page up/down") {
+		t.Error("help view does not list pgup/pgdown")
+	}
+}
+
 func TestLogCursorJumpKeysWithEmptyEntries(t *testing.T) {
 	for _, key := range []string{"g", "G"} {
 		t.Run(key, func(t *testing.T) {
@@ -344,6 +414,17 @@ func TestLogCursorKeysIgnoredOutsideLogsAndWithEmptyEntries(t *testing.T) {
 	m, _ = updateWithKey(t, m, runeKey("k"))
 	if m.cursor != 2 {
 		t.Errorf("cursor on Jobs tab = %d, want 2", m.cursor)
+	}
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyPgUp})
+	if m.cursor != 2 {
+		t.Errorf("cursor after pgup on Jobs tab = %d, want 2", m.cursor)
+	}
+
+	help := New().WithLogs(logEntries(3), nil)
+	help, _ = updateWithKey(t, help, runeKey("?"))
+	help, _ = updateWithKey(t, help, tea.KeyMsg{Type: tea.KeyPgUp})
+	if help.cursor != 2 {
+		t.Errorf("cursor after pgup in help = %d, want 2", help.cursor)
 	}
 
 	empty := New().WithLogs(nil, nil)
