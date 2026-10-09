@@ -29,6 +29,7 @@ type Model struct {
 	settings      config.Settings
 	cfgErr        error
 	entries       []logs.Entry
+	cursor        int
 	logErr        error
 	logLoaded     bool
 }
@@ -39,6 +40,7 @@ var (
 	activeTabStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
 	inactiveTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	footerStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	selectedStyle    = lipgloss.NewStyle().Reverse(true)
 )
 
 func New() Model {
@@ -53,6 +55,7 @@ func (m Model) WithConfig(s config.Settings, err error) Model {
 
 func (m Model) WithLogs(entries []logs.Entry, err error) Model {
 	m.entries, m.logErr, m.logLoaded = entries, err, true
+	m.cursor = max(0, len(entries)-1)
 	return m
 }
 
@@ -111,10 +114,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.active = TabConnections
 		case "?":
 			m.showHelp = !m.showHelp
+		case "up", "k":
+			if m.active == TabLogs && !m.showHelp {
+				m = m.moveCursor(-1)
+			}
+		case "down", "j":
+			if m.active == TabLogs && !m.showHelp {
+				m = m.moveCursor(1)
+			}
 		}
 	}
 
 	return m, nil
+}
+
+func (m Model) moveCursor(delta int) Model {
+	if len(m.entries) == 0 {
+		return m
+	}
+
+	m.cursor = min(max(0, m.cursor+delta), len(m.entries)-1)
+	return m
 }
 
 func (m Model) View() string {
@@ -146,7 +166,7 @@ func (m Model) centered() bool {
 
 func (m Model) body() string {
 	if m.showHelp {
-		return "tab: next tab\nshift+tab: previous tab\n1/2/3: select tab\n?: toggle help\nq: quit"
+		return "tab: next tab\nshift+tab: previous tab\n1/2/3: select tab\nup/k, down/j: move in logs\n?: toggle help\nq: quit"
 	}
 
 	switch m.active {
@@ -174,8 +194,12 @@ func (m Model) logsBody() string {
 	}
 
 	start := max(0, len(m.entries)-maxLogLines)
-	lines := make([]string, 0, len(m.entries)-start)
-	for _, entry := range m.entries[start:] {
+	if m.cursor < start {
+		start = m.cursor
+	}
+	end := min(len(m.entries), start+maxLogLines)
+	lines := make([]string, 0, end-start)
+	for i, entry := range m.entries[start:end] {
 		line := entry.Time.Format("2006-01-02 15:04:05") + " " + entry.Level + " " + entry.Message
 		if m.width > 0 {
 			runes := []rune(line)
@@ -183,8 +207,11 @@ func (m Model) logsBody() string {
 				line = string(runes[:m.width])
 			}
 		}
+		if start+i == m.cursor {
+			line = selectedStyle.Render(line)
+		}
 		lines = append(lines, line)
 	}
 
-	return fmt.Sprintf("%d entries\n\n%s", len(m.entries), strings.Join(lines, "\n"))
+	return fmt.Sprintf("%d entries  (%d/%d)\n\n%s", len(m.entries), m.cursor+1, len(m.entries), strings.Join(lines, "\n"))
 }

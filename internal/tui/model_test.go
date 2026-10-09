@@ -216,3 +216,99 @@ func TestLogsBody(t *testing.T) {
 		})
 	}
 }
+
+func TestWithLogsSelectsNewestEntry(t *testing.T) {
+	entries := logEntries(3)
+	m := New().WithLogs(entries, nil)
+	if m.cursor != 2 {
+		t.Fatalf("cursor = %d, want 2", m.cursor)
+	}
+}
+
+func TestLogCursorMovesAndClamps(t *testing.T) {
+	m := New().WithLogs(logEntries(3), nil)
+
+	for range 2 {
+		m, _ = updateWithKey(t, m, runeKey("k"))
+	}
+	if m.cursor != 0 {
+		t.Fatalf("cursor after two k keys = %d, want 0", m.cursor)
+	}
+
+	m, _ = updateWithKey(t, m, runeKey("k"))
+	if m.cursor != 0 {
+		t.Errorf("cursor after k at first entry = %d, want 0", m.cursor)
+	}
+
+	m, _ = updateWithKey(t, m, runeKey("j"))
+	if m.cursor != 1 {
+		t.Errorf("cursor after j = %d, want 1", m.cursor)
+	}
+
+	for range 3 {
+		m, _ = updateWithKey(t, m, runeKey("j"))
+	}
+	if m.cursor != 2 {
+		t.Errorf("cursor after j past last entry = %d, want 2", m.cursor)
+	}
+}
+
+func TestLogCursorArrowKeys(t *testing.T) {
+	m := New().WithLogs(logEntries(3), nil)
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyUp})
+	if m.cursor != 1 {
+		t.Fatalf("cursor after up = %d, want 1", m.cursor)
+	}
+
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.cursor != 2 {
+		t.Errorf("cursor after down = %d, want 2", m.cursor)
+	}
+}
+
+func TestLogCursorScrollsList(t *testing.T) {
+	m := New().WithLogs(logEntries(30), nil)
+	view := m.View()
+	if !strings.Contains(view, "msg29") || strings.Contains(view, "msg9") {
+		t.Errorf("view at newest cursor did not show only the tail window")
+	}
+
+	for range 25 {
+		m, _ = updateWithKey(t, m, runeKey("k"))
+	}
+	if m.cursor != 4 {
+		t.Fatalf("cursor = %d, want 4", m.cursor)
+	}
+
+	view = m.View()
+	if !strings.Contains(view, "msg4") || strings.Contains(view, "msg29") {
+		t.Errorf("view at cursor 4 did not scroll to the cursor window")
+	}
+}
+
+func TestLogCursorKeysIgnoredOutsideLogsAndWithEmptyEntries(t *testing.T) {
+	m := New().WithLogs(logEntries(3), nil)
+	m, _ = updateWithKey(t, m, runeKey("2"))
+	m, _ = updateWithKey(t, m, runeKey("k"))
+	if m.cursor != 2 {
+		t.Errorf("cursor on Jobs tab = %d, want 2", m.cursor)
+	}
+
+	empty := New().WithLogs(nil, nil)
+	empty, _ = updateWithKey(t, empty, runeKey("k"))
+	if empty.cursor != 0 {
+		t.Errorf("empty cursor = %d, want 0", empty.cursor)
+	}
+}
+
+func logEntries(count int) []logs.Entry {
+	entries := make([]logs.Entry, count)
+	for i := range entries {
+		entries[i] = logs.Entry{Header: logs.Header{
+			Time:    time.Date(2026, 1, 1, 0, 0, i, 0, time.UTC),
+			Level:   "ERROR",
+			Message: fmt.Sprintf("msg%d", i),
+		}}
+	}
+	return entries
+}
