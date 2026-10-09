@@ -3,11 +3,14 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"larascope/internal/config"
+	"larascope/internal/logs"
 )
 
 func updateWithKey(t *testing.T, m Model, msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -145,5 +148,71 @@ func TestViewWithConfig(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Errorf("view does not contain %q", want)
 		}
+	}
+}
+
+func TestLogsBody(t *testing.T) {
+	tests := []struct {
+		name    string
+		model   Model
+		want    []string
+		notWant []string
+	}{
+		{
+			name:  "not loaded",
+			model: New(),
+			want:  []string{"No log file detected yet"},
+		},
+		{
+			name:  "missing file",
+			model: New().WithLogs(nil, fmt.Errorf("x: %w", fs.ErrNotExist)),
+			want:  []string{"No log file found"},
+		},
+		{
+			name:  "load error",
+			model: New().WithLogs(nil, errors.New("boom")),
+			want:  []string{"Log error: boom"},
+		},
+		{
+			name:  "no entries",
+			model: New().WithLogs([]logs.Entry{}, nil),
+			want:  []string{"Log file has no entries"},
+		},
+	}
+
+	entries := make([]logs.Entry, 25)
+	for i := range entries {
+		entries[i] = logs.Entry{Header: logs.Header{
+			Time:    time.Date(2026, 1, 1, 0, 0, i, 0, time.UTC),
+			Level:   "ERROR",
+			Message: fmt.Sprintf("msg-%02d", i),
+		}}
+	}
+	tests = append(tests, struct {
+		name    string
+		model   Model
+		want    []string
+		notWant []string
+	}{
+		name:    "last twenty entries",
+		model:   New().WithLogs(entries, nil),
+		want:    []string{"25 entries", "msg-24", "msg-05"},
+		notWant: []string{"msg-04"},
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			view := tt.model.View()
+			for _, want := range tt.want {
+				if !strings.Contains(view, want) {
+					t.Errorf("view does not contain %q", want)
+				}
+			}
+			for _, notWant := range tt.notWant {
+				if strings.Contains(view, notWant) {
+					t.Errorf("view contains %q", notWant)
+				}
+			}
+		})
 	}
 }

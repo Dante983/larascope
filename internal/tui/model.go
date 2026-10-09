@@ -3,11 +3,13 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"larascope/internal/config"
+	"larascope/internal/logs"
 )
 
 type Tab int
@@ -26,7 +28,12 @@ type Model struct {
 	showHelp      bool
 	settings      config.Settings
 	cfgErr        error
+	entries       []logs.Entry
+	logErr        error
+	logLoaded     bool
 }
+
+const maxLogLines = 20
 
 var (
 	activeTabStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
@@ -41,6 +48,11 @@ func New() Model {
 func (m Model) WithConfig(s config.Settings, err error) Model {
 	m.settings = s
 	m.cfgErr = err
+	return m
+}
+
+func (m Model) WithLogs(entries []logs.Entry, err error) Model {
+	m.entries, m.logErr, m.logLoaded = entries, err, true
 	return m
 }
 
@@ -116,7 +128,7 @@ func (m Model) View() string {
 	}
 
 	body := m.body()
-	if m.width > 0 {
+	if m.width > 0 && m.centered() {
 		body = lipgloss.PlaceHorizontal(m.width, lipgloss.Center, body)
 	}
 
@@ -126,6 +138,10 @@ func (m Model) View() string {
 	}
 
 	return fmt.Sprintf("%s\n\n%s\n\n%s", lipgloss.JoinHorizontal(lipgloss.Top, tabs...), body, footer)
+}
+
+func (m Model) centered() bool {
+	return !(m.active == TabLogs && m.logLoaded && m.logErr == nil && len(m.entries) > 0)
 }
 
 func (m Model) body() string {
@@ -139,6 +155,36 @@ func (m Model) body() string {
 	case TabConnections:
 		return "No connections detected yet"
 	default:
+		return m.logsBody()
+	}
+}
+
+func (m Model) logsBody() string {
+	if !m.logLoaded {
 		return "No log file detected yet"
 	}
+	if errors.Is(m.logErr, fs.ErrNotExist) {
+		return "No log file found (storage/logs/laravel.log)"
+	}
+	if m.logErr != nil {
+		return "Log error: " + m.logErr.Error()
+	}
+	if len(m.entries) == 0 {
+		return "Log file has no entries"
+	}
+
+	start := max(0, len(m.entries)-maxLogLines)
+	lines := make([]string, 0, len(m.entries)-start)
+	for _, entry := range m.entries[start:] {
+		line := entry.Time.Format("2006-01-02 15:04:05") + " " + entry.Level + " " + entry.Message
+		if m.width > 0 {
+			runes := []rune(line)
+			if len(runes) > m.width {
+				line = string(runes[:m.width])
+			}
+		}
+		lines = append(lines, line)
+	}
+
+	return fmt.Sprintf("%d entries\n\n%s", len(m.entries), strings.Join(lines, "\n"))
 }
