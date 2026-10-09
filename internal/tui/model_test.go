@@ -286,6 +286,58 @@ func TestLogCursorScrollsList(t *testing.T) {
 	}
 }
 
+func TestLogCursorJumpsToFirstAndLastEntry(t *testing.T) {
+	m := New().WithLogs(logEntries(30), nil)
+
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	if m.cursor != 0 {
+		t.Fatalf("cursor after g = %d, want 0", m.cursor)
+	}
+
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if m.cursor != 29 {
+		t.Errorf("cursor after G = %d, want 29", m.cursor)
+	}
+}
+
+func TestLogCursorJumpKeysWithEmptyEntries(t *testing.T) {
+	for _, key := range []string{"g", "G"} {
+		t.Run(key, func(t *testing.T) {
+			m := New().WithLogs(nil, nil)
+			m, _ = updateWithKey(t, m, runeKey(key))
+			if m.cursor != 0 {
+				t.Errorf("cursor after %s with no entries = %d, want 0", key, m.cursor)
+			}
+		})
+	}
+}
+
+func TestLogCursorJumpKeyIgnoredInDetail(t *testing.T) {
+	m := New().WithLogs(logEntries(3), nil)
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = updateWithKey(t, m, runeKey("g"))
+	if m.cursor != 2 {
+		t.Errorf("cursor after g in detail = %d, want 2", m.cursor)
+	}
+}
+
+func TestLogCursorJumpKeysUpdateVisibleEntries(t *testing.T) {
+	m := New().WithLogs(logEntries(30), nil)
+
+	m, _ = updateWithKey(t, m, runeKey("g"))
+	view := m.View()
+	for _, want := range []string{"msg0", "(1/30)"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view after g does not contain %q", want)
+		}
+	}
+
+	m, _ = updateWithKey(t, m, runeKey("G"))
+	if !strings.Contains(m.View(), "(30/30)") {
+		t.Error("view after G does not contain \"(30/30)\"")
+	}
+}
+
 func TestLogCursorKeysIgnoredOutsideLogsAndWithEmptyEntries(t *testing.T) {
 	m := New().WithLogs(logEntries(3), nil)
 	m, _ = updateWithKey(t, m, runeKey("2"))
