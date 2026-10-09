@@ -26,6 +26,7 @@ type Model struct {
 	active        Tab
 	width, height int
 	showHelp      bool
+	detail        bool
 	settings      config.Settings
 	cfgErr        error
 	entries       []logs.Entry
@@ -56,6 +57,7 @@ func (m Model) WithConfig(s config.Settings, err error) Model {
 func (m Model) WithLogs(entries []logs.Entry, err error) Model {
 	m.entries, m.logErr, m.logLoaded = entries, err, true
 	m.cursor = max(0, len(entries)-1)
+	m.detail = false
 	return m
 }
 
@@ -114,12 +116,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.active = TabConnections
 		case "?":
 			m.showHelp = !m.showHelp
+		case "enter":
+			if m.active == TabLogs && !m.showHelp && len(m.entries) > 0 {
+				m.detail = !m.detail
+			}
+		case "esc":
+			m.detail = false
 		case "up", "k":
-			if m.active == TabLogs && !m.showHelp {
+			if m.active == TabLogs && !m.showHelp && !m.detail {
 				m = m.moveCursor(-1)
 			}
 		case "down", "j":
-			if m.active == TabLogs && !m.showHelp {
+			if m.active == TabLogs && !m.showHelp && !m.detail {
 				m = m.moveCursor(1)
 			}
 		}
@@ -166,7 +174,7 @@ func (m Model) centered() bool {
 
 func (m Model) body() string {
 	if m.showHelp {
-		return "tab: next tab\nshift+tab: previous tab\n1/2/3: select tab\nup/k, down/j: move in logs\n?: toggle help\nq: quit"
+		return "tab: next tab\nshift+tab: previous tab\n1/2/3: select tab\nup/k, down/j: move in logs\nenter: toggle entry detail\nesc: back to list\n?: toggle help\nq: quit"
 	}
 
 	switch m.active {
@@ -192,6 +200,9 @@ func (m Model) logsBody() string {
 	if len(m.entries) == 0 {
 		return "Log file has no entries"
 	}
+	if m.detail {
+		return m.detailBody()
+	}
 
 	start := max(0, len(m.entries)-maxLogLines)
 	if m.cursor < start {
@@ -214,4 +225,13 @@ func (m Model) logsBody() string {
 	}
 
 	return fmt.Sprintf("%d entries  (%d/%d)\n\n%s", len(m.entries), m.cursor+1, len(m.entries), strings.Join(lines, "\n"))
+}
+
+func (m Model) detailBody() string {
+	entry := m.entries[m.cursor]
+	body := entry.Time.Format("2006-01-02 15:04:05") + " " + entry.Level + " " + entry.Env + "\n\n" + entry.Message
+	if len(entry.Trace) > 0 {
+		body += "\n\n" + strings.Join(entry.Trace, "\n")
+	}
+	return body
 }

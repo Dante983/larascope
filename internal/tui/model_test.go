@@ -301,6 +301,86 @@ func TestLogCursorKeysIgnoredOutsideLogsAndWithEmptyEntries(t *testing.T) {
 	}
 }
 
+func TestLogDetailToggleAndEscape(t *testing.T) {
+	entries := logEntries(2)
+	entries[1].Env = "local"
+	entries[1].Trace = []string{"trace line"}
+	m := New().WithLogs(entries, nil)
+
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.detail {
+		t.Fatal("detail = false after enter")
+	}
+	view := m.View()
+	for _, want := range []string{"msg1", "trace line"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("detail view does not contain %q", want)
+		}
+	}
+	if strings.Contains(view, "entries  (") {
+		t.Error("detail view contains list header")
+	}
+
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.detail {
+		t.Fatal("detail = true after second enter")
+	}
+
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.detail {
+		t.Fatal("detail = true after esc")
+	}
+}
+
+func TestLogDetailCursorKeysDoNotMoveCursor(t *testing.T) {
+	m := New().WithLogs(logEntries(3), nil)
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	for _, key := range []string{"j", "k"} {
+		m, _ = updateWithKey(t, m, runeKey(key))
+		if m.cursor != 2 {
+			t.Errorf("cursor after %q in detail = %d, want 2", key, m.cursor)
+		}
+	}
+}
+
+func TestLogDetailEnterIgnoredWithoutLogEntriesOrOutsideLogs(t *testing.T) {
+	empty := New().WithLogs(nil, nil)
+	empty, _ = updateWithKey(t, empty, tea.KeyMsg{Type: tea.KeyEnter})
+	if empty.detail {
+		t.Error("detail = true after enter with no entries")
+	}
+
+	m := New().WithLogs(logEntries(1), nil)
+	m, _ = updateWithKey(t, m, runeKey("2"))
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.detail {
+		t.Error("detail = true after enter on Jobs tab")
+	}
+}
+
+func TestWithLogsResetsDetail(t *testing.T) {
+	m := New().WithLogs(logEntries(1), nil)
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.detail {
+		t.Fatal("detail = false after enter")
+	}
+
+	m = m.WithLogs(logEntries(1), nil)
+	if m.detail {
+		t.Error("detail = true after WithLogs")
+	}
+}
+
+func TestLogDetailWithoutTraceHasNoTrailingBlankSection(t *testing.T) {
+	m := New().WithLogs(logEntries(1), nil)
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if strings.HasSuffix(m.detailBody(), "\n\n") {
+		t.Errorf("detailBody() = %q, ends with a blank section", m.detailBody())
+	}
+}
+
 func logEntries(count int) []logs.Entry {
 	entries := make([]logs.Entry, count)
 	for i := range entries {
