@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -368,6 +369,85 @@ func TestHelpListsLogCursorPageKeys(t *testing.T) {
 	if !strings.Contains(m.View(), "pgup/pgdown: page up/down") {
 		t.Error("help view does not list pgup/pgdown")
 	}
+	if !strings.Contains(m.View(), "r: reload log file") {
+		t.Error("help view does not list reload log file")
+	}
+}
+
+func TestReloadKeyRequiresLogRoot(t *testing.T) {
+	_, cmd := updateWithKey(t, New(), runeKey("r"))
+	if cmd != nil {
+		t.Error("r with an empty Root returned a command")
+	}
+
+	m := New().WithConfig(config.Settings{Root: t.TempDir()}, nil)
+	_, cmd = updateWithKey(t, m, runeKey("r"))
+	if cmd == nil {
+		t.Error("r with a Root returned a nil command")
+	}
+}
+
+func TestReloadLogsCursorBehavior(t *testing.T) {
+	tests := []struct {
+		name       string
+		model      Model
+		entries    []logs.Entry
+		wantCursor int
+	}{
+		{
+			name:       "last entry follows new tail",
+			model:      New().WithLogs(logEntries(2), nil),
+			entries:    logEntries(3),
+			wantCursor: 2,
+		},
+		{
+			name:       "other entry stays put",
+			model:      New().WithLogs(logEntries(2), nil).jumpCursor(0),
+			entries:    logEntries(3),
+			wantCursor: 0,
+		},
+		{
+			name:       "cursor clamps when entries shrink",
+			model:      New().WithLogs(logEntries(5), nil),
+			entries:    logEntries(2),
+			wantCursor: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			updated, cmd := tt.model.Update(logsLoadedMsg{entries: tt.entries})
+			if cmd != nil {
+				t.Error("reload message returned a command")
+			}
+			if got := updated.(Model).cursor; got != tt.wantCursor {
+				t.Errorf("cursor = %d, want %d", got, tt.wantCursor)
+			}
+		})
+	}
+}
+
+func TestReloadLogsErrorKeepsEntries(t *testing.T) {
+	m := New().WithLogs(logEntries(2), nil)
+	wantErr := errors.New("reload failed")
+	updated, _ := m.Update(logsLoadedMsg{err: wantErr})
+	got := updated.(Model)
+
+	if !reflect.DeepEqual(got.entries, m.entries) {
+		t.Errorf("entries = %#v, want %#v", got.entries, m.entries)
+	}
+	if !errors.Is(got.logErr, wantErr) {
+		t.Errorf("logErr = %v, want %v", got.logErr, wantErr)
+	}
+}
+
+func TestReloadLogsEmptyEntriesClosesDetail(t *testing.T) {
+	m := New().WithLogs(logEntries(1), nil)
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := m.Update(logsLoadedMsg{entries: []logs.Entry{}})
+	if updated.(Model).detail {
+		t.Error("detail = true after reload with no entries")
+	}
 }
 
 func TestLogCursorJumpKeysWithEmptyEntries(t *testing.T) {
@@ -466,14 +546,52 @@ func TestLogDetailToggleAndEscape(t *testing.T) {
 	}
 }
 
-func TestLogDetailCursorKeysDoNotMoveCursor(t *testing.T) {
+func TestLogDetailCursorKeysMoveAndClamp(t *testing.T) {
 	m := New().WithLogs(logEntries(3), nil)
 	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	for _, key := range []string{"j", "k"} {
-		m, _ = updateWithKey(t, m, runeKey(key))
-		if m.cursor != 2 {
-			t.Errorf("cursor after %q in detail = %d, want 2", key, m.cursor)
+	m, _ = updateWithKey(t, m, runeKey("k"))
+	if m.cursor != 1 {
+		t.Fatalf("cursor after k in detail = %d, want 1", m.cursor)
+	}
+	if !m.detail {
+		t.Fatal("detail = false after k in detail")
+	}
+	if !strings.Contains(m.View(), "msg1") {
+		t.Error("detail view after k does not contain msg1")
+	}
+
+	for range 3 {
+		m, _ = updateWithKey(t, m, runeKey("j"))
+	}
+	if m.cursor != 2 {
+		t.Errorf("cursor after j past last entry in detail = %d, want 2", m.cursor)
+	}
+	if !m.detail {
+		t.Error("detail = false after j in detail")
+	}
+
+	for range 3 {
+		m, _ = updateWithKey(t, m, runeKey("k"))
+	}
+	if m.cursor != 0 {
+		t.Errorf("cursor after k at first entry in detail = %d, want 0", m.cursor)
+	}
+}
+
+func TestLogDetailJumpAndPageKeysDoNotMoveCursor(t *testing.T) {
+	m := New().WithLogs(logEntries(3), nil)
+	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = updateWithKey(t, m, runeKey("k"))
+
+	for _, key := range []tea.KeyMsg{
+		runeKey("g"),
+		runeKey("G"),
+		{Type: tea.KeyPgUp},
+	} {
+		m, _ = updateWithKey(t, m, key)
+		if m.cursor != 1 {
+			t.Errorf("cursor after %q in detail = %d, want 1", key.String(), m.cursor)
 		}
 	}
 }

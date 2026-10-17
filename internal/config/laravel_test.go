@@ -79,14 +79,14 @@ func TestSettingsFromEnv(t *testing.T) {
 		DBHost:          "127.0.0.1",
 		DBPort:          "3306",
 		DBDatabase:      "larascope",
-		DBUsername:      "sail",
+		DBUsername:      "sail", RedisHost: "127.0.0.1", RedisPort: "6379", RabbitPort: "5672",
 	}
 	if got := SettingsFromEnv(env); got != want {
 		t.Errorf("SettingsFromEnv() = %#v, want %#v", got, want)
 	}
 
-	if got := SettingsFromEnv(map[string]string{}); got != (Settings{}) {
-		t.Errorf("SettingsFromEnv(empty) = %#v, want zero Settings", got)
+	if got := SettingsFromEnv(map[string]string{}); got != (Settings{RedisHost: "127.0.0.1", RedisPort: "6379", RabbitPort: "5672"}) {
+		t.Errorf("SettingsFromEnv(empty) = %#v, want defaults", got)
 	}
 }
 
@@ -105,7 +105,7 @@ func TestLoad(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Settings{Root: root, LogChannel: "daily", QueueConnection: "database", DBConnection: "mysql", DBHost: "127.0.0.1", DBPort: "3306", DBDatabase: "larascope", DBUsername: "sail"}
+		want := Settings{Root: root, LogChannel: "daily", QueueConnection: "database", DBConnection: "mysql", DBHost: "127.0.0.1", DBPort: "3306", DBDatabase: "larascope", DBUsername: "sail", RedisHost: "127.0.0.1", RedisPort: "6379", RabbitPort: "5672"}
 		if got != want {
 			t.Errorf("Load() = %#v, want %#v", got, want)
 		}

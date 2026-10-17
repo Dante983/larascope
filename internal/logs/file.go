@@ -26,3 +26,36 @@ func LoadFile(path string) ([]Entry, error) {
 
 	return ParseEntries(lines), nil
 }
+
+// LoadTail reads at most maxBytes from the end of a log file. A partial first line is dropped.
+func LoadTail(path string, maxBytes int64) ([]Entry, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	start := int64(0)
+	if info.Size() > maxBytes {
+		start = info.Size() - maxBytes
+		if _, err = f.Seek(start, 0); err != nil {
+			return nil, err
+		}
+	}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	lines := []string{}
+	if start > 0 {
+		sc.Scan()
+	} // discard first partial line
+	for sc.Scan() {
+		lines = append(lines, sc.Text())
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return ParseEntries(lines), nil
+}

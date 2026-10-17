@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var ErrNotLaravel = errors.New("no artisan file found")
@@ -34,14 +36,18 @@ func FindRoot(start string) (string, error) {
 }
 
 type Settings struct {
-	Root            string
-	LogChannel      string
-	QueueConnection string
-	DBConnection    string
-	DBHost          string
-	DBPort          string
-	DBDatabase      string
-	DBUsername      string
+	Root                   string
+	LogChannel             string
+	QueueConnection        string
+	DBConnection           string
+	DBHost                 string
+	DBPort                 string
+	DBDatabase             string
+	DBUsername             string
+	DBPassword             string
+	DBSocket               string
+	RedisHost, RedisPort   string
+	RabbitHost, RabbitPort string
 }
 
 // SettingsFromEnv maps parsed environment values to Settings. Root is left
@@ -54,7 +60,9 @@ func SettingsFromEnv(env map[string]string) Settings {
 		DBHost:          env["DB_HOST"],
 		DBPort:          env["DB_PORT"],
 		DBDatabase:      env["DB_DATABASE"],
-		DBUsername:      env["DB_USERNAME"],
+		DBUsername:      env["DB_USERNAME"], DBPassword: env["DB_PASSWORD"], DBSocket: env["DB_SOCKET"],
+		RedisHost: valueOr(env["REDIS_HOST"], "127.0.0.1"), RedisPort: valueOr(env["REDIS_PORT"], "6379"),
+		RabbitHost: env["RABBITMQ_HOST"], RabbitPort: valueOr(env["RABBITMQ_PORT"], "5672"),
 	}
 }
 
@@ -77,4 +85,24 @@ func Load(start string) (Settings, error) {
 	settings = SettingsFromEnv(ParseEnv(string(src)))
 	settings.Root = root
 	return settings, nil
+}
+
+func valueOr(v, d string) string {
+	if v == "" {
+		return d
+	}
+	return v
+}
+func (s Settings) DSN() string {
+	host, port := valueOr(s.DBHost, "127.0.0.1"), valueOr(s.DBPort, "3306")
+	return s.DBUsername + ":" + s.DBPassword + "@tcp(" + host + ":" + port + ")/" + s.DBDatabase + "?timeout=3s&readTimeout=3s&parseTime=true"
+}
+func Redact(v string, secrets ...string) string {
+	for _, x := range secrets {
+		if x != "" {
+			v = strings.ReplaceAll(v, x, "***")
+			v = strings.ReplaceAll(v, url.QueryEscape(x), "***")
+		}
+	}
+	return v
 }
