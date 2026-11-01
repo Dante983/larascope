@@ -15,6 +15,7 @@ type connsState struct {
 	results               []conns.Result
 	loading, connsTicking bool
 	checked               time.Time
+	cursor                int
 }
 type connsLoadedMsg struct{ results []conns.Result }
 type connsTickMsg struct{}
@@ -30,6 +31,9 @@ func connsTick() tea.Cmd {
 	return tea.Tick(10*time.Second, func(time.Time) tea.Msg { return connsTickMsg{} })
 }
 func (m *Model) startConnsLoad() tea.Cmd {
+	if !m.liveAllowed() {
+		return nil
+	}
 	if m.conns.loading {
 		return nil
 	}
@@ -43,14 +47,6 @@ func (m Model) connsBody() string {
 	if len(m.conns.results) == 0 {
 		return "No connections detected yet"
 	}
-	var a []string
-	if !m.conns.checked.IsZero() {
-		header := "Last check: " + m.conns.checked.Format("15:04:05")
-		if m.conns.loading {
-			header += " (refreshing…)"
-		}
-		a = append(a, header)
-	}
 	up, down := 0, 0
 	for _, r := range m.conns.results {
 		if r.OK {
@@ -59,52 +55,26 @@ func (m Model) connsBody() string {
 			down++
 		}
 	}
-	a = append(a, fmt.Sprintf("%s · %s", badge(fmt.Sprintf("%d up", up), colOK), badge(fmt.Sprintf("%d down", down), colErr)), lipgloss.NewStyle().Foreground(colMuted).Render("auto-refresh 10s · r to refresh"), lipgloss.NewStyle().Foreground(colMuted).Bold(true).Render("STATUS  NAME  TARGET  "+func() string {
-		if m.width == 0 || m.width >= 80 {
-			return "LATENCY  "
+	rows := make([][]Cell, len(m.conns.results))
+	for i, r := range m.conns.results {
+		status, st := statusDot(r.OK)
+		latency := conns.FormatLatency(r.Latency)
+		var lst *lipgloss.Style
+		if r.Latency > 500*time.Millisecond {
+			x := lipgloss.NewStyle().Foreground(colWarn)
+			lst = &x
 		}
-		return ""
-	}()+"ERROR"))
-	rows := len(m.conns.results)
-	if m.height > 0 {
-		rows = m.bodyHeight() - len(a)
-		if len(m.conns.results) > rows {
-			rows--
-		}
-		rows = max(1, rows)
+		rows[i] = []Cell{{Text: status, Style: &st}, {Text: sanitizeLine(r.Name)}, {Text: sanitizeLine(r.Target)}, {Text: latency, Style: lst}, {Text: sanitizeLine(config.Redact(r.Err, m.settings.Secrets()...))}}
 	}
-	end := min(len(m.conns.results), rows)
-	for _, r := range m.conns.results[:end] {
-		v := "○ down"
-		if r.OK {
-			v = "● up"
-		}
-		statusColor := colErr
-		if r.OK {
-			statusColor = colOK
-		}
-		line := lipgloss.NewStyle().Foreground(statusColor).Render(v) + "  " + padRight(sanitizeLine(r.Name), 12) + "  " + padRight(sanitizeLine(r.Target), 20)
-		if m.width == 0 || m.width >= 80 {
-			latency := conns.FormatLatency(r.Latency)
-			c := colInfo
-			if r.Latency > 500*time.Millisecond {
-				c = colWarn
-			}
-			line += "  " + lipgloss.NewStyle().Foreground(c).Render(latency)
-		}
-		if r.Err != "" {
-			err := sanitizeLine(config.Redact(r.Err, m.settings.Secrets()...))
-			if cw := m.clipWidth(); cw > 0 {
-				err = truncateStrict(err, cw-lipgloss.Width(line)-2)
-			}
-			if err != "" {
-				line += "  " + err
-			}
-		}
-		a = append(a, truncate(line, m.clipWidth()))
+	t := Table{Cols: []Column{{"STATUS", 6, 9, false, AlignLeft, 0}, {"NAME", 8, 16, false, AlignLeft, 0}, {"TARGET", 8, 0, true, AlignLeft, 0}, {"LATENCY", 5, 0, false, AlignRight, 2}, {"ERROR", 10, 0, false, AlignLeft, 1}}, Rows: rows, Cursor: m.conns.cursor, Width: m.clipWidth()}
+	lines, s, e := t.Render(max(1, m.bodyHeight()-2))
+	right := ""
+	if len(rows) > 0 {
+		right = fmt.Sprintf("%d–%d of %d", s+1, e, len(rows))
 	}
-	if end < len(m.conns.results) {
-		a = append(a, fmt.Sprintf("rows 1–%d of %d (enlarge terminal to see more)", end, len(m.conns.results)))
+	refresh := "auto-refresh 10s"
+	if m.demo {
+		refresh = "sample data"
 	}
-	return strings.Join(a, "\n")
+	return strings.Join(append([]string{metaLine(fmt.Sprintf("%d up · %d down · checked %s · %s", up, down, m.conns.checked.Format("15:04:05"), refresh), right, m.clipWidth())}, lines...), "\n")
 }

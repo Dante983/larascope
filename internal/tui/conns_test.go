@@ -26,7 +26,7 @@ func TestConnectionsLoadStateAndBody(t *testing.T) {
 	}
 	m.settings.DBPassword = "s3cr3t"
 	view := m.View()
-	for _, want := range []string{"Last check:", "● up", "2ms", "***"} {
+	for _, want := range []string{"checked", "● up", "2ms", "***"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("missing %q: %s", want, view)
 		}
@@ -173,7 +173,7 @@ func TestConnectionsBodyRendering(t *testing.T) {
 	m.conns.results = []conns.Result{{Name: "first", Target: "a", OK: true, Latency: 0}, {Name: "second", Target: "b", OK: true, Latency: 250 * time.Millisecond}, {Name: "third", Target: "c", OK: true, Latency: 1500 * time.Millisecond}}
 	m.conns.checked = time.Now()
 	v := m.connsBody()
-	for _, want := range []string{"(refreshing…)", "first", "<1ms", "250ms", "1.5s"} {
+	for _, want := range []string{"checked", "first", "<1ms", "250ms", "1.5s"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("missing %q", want)
 		}
@@ -216,7 +216,7 @@ func TestConnectionsWindowAndUnlimitedWidth(t *testing.T) {
 		m.conns.results[i] = conns.Result{Name: fmt.Sprintf("connection-%d", i), Target: "host", OK: true}
 	}
 	v := m.View()
-	if len(strings.Split(v, "\n")) > 12 || !strings.Contains(v, "rows 1–") || !strings.Contains(v, "of 30") {
+	if len(strings.Split(v, "\n")) > 12 || !strings.Contains(v, "1–") || !strings.Contains(v, "of 30") {
 		t.Fatalf("connection window missing or too tall: %q", v)
 	}
 	m.width, m.height = 0, 0

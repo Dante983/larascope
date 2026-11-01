@@ -179,7 +179,7 @@ func TestViewJobsDetailSmallHeights(t *testing.T) {
 	}
 	m := matrixModel(80, 24)
 	m.active, m.jobs.view, m.jobs.detail = TabJobs, "pending", true
-	if v := m.View(); !strings.Contains(v, "rows ") || !strings.Contains(v, "id:") {
+	if v := m.View(); !strings.Contains(v, "of 100") || !strings.Contains(v, "id:") {
 		t.Fatalf("normal detail missing table/detail: %q", v)
 	}
 	m = matrixModel(120, 10)
@@ -282,7 +282,7 @@ func TestViewTwoPaneAndEscapeSanitization(t *testing.T) {
 		}
 		headerAtLeft := false
 		for _, line := range strings.Split(v, "\n") {
-			if strings.HasPrefix(line, "ID  STATE") {
+			if strings.Contains(line, "ID") && strings.Contains(line, "STATE") {
 				headerAtLeft = true
 			}
 		}
@@ -292,7 +292,7 @@ func TestViewTwoPaneAndEscapeSanitization(t *testing.T) {
 		m.active = TabConnections
 		connectionsAtLeft := false
 		for _, line := range strings.Split(m.View(), "\n") {
-			if strings.HasPrefix(line, "STATUS") {
+			if strings.Contains(line, "STATUS") && strings.Contains(line, "TARGET") {
 				connectionsAtLeft = true
 			}
 		}

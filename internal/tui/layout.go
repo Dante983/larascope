@@ -46,7 +46,7 @@ func (m Model) listHeight() int {
 	if m.height == 0 {
 		return maxLogLines
 	}
-	overhead := 1
+	overhead := 2
 	if m.searching {
 		overhead++
 	}

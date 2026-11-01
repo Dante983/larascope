@@ -76,7 +76,7 @@ func loadJobsCmd(s config.Settings) tea.Cmd {
 	}
 }
 func (m Model) jobsBody() string {
-	if m.settings.Root == "" {
+	if m.settings.Root == "" && !m.demo {
 		return "No jobs detected yet"
 	}
 	if m.jobs.err != nil {
@@ -100,16 +100,23 @@ func (m Model) jobsBody() string {
 	}
 	lines := []string{"Jobs [" + m.jobs.view + "] (p to switch)"}
 	totalReady, totalDelayed, totalReserved := 0, 0, 0
-	for i, c := range m.jobs.counts {
+	for _, c := range m.jobs.counts {
 		totalReady += c.Ready
 		totalDelayed += c.Delayed
 		totalReserved += c.Reserved
-		if i < 3 {
-			lines = append(lines, fmt.Sprintf("%s %s %s %s", sanitizeLine(c.Queue), badge(fmt.Sprintf("ready=%d", c.Ready), colOK), badge(fmt.Sprintf("delayed=%d", c.Delayed), colWarn), badge(fmt.Sprintf("reserved=%d", c.Reserved), colInfo)))
-		}
 	}
-	if len(m.jobs.counts) > 3 {
-		lines = append(lines, fmt.Sprintf("… +%d queues", len(m.jobs.counts)-3))
+	if m.bodyHeight() >= 16 && len(m.jobs.counts) > 0 {
+		rows := make([][]Cell, min(3, len(m.jobs.counts)))
+		for i, c := range m.jobs.counts[:len(rows)] {
+			rows[i] = []Cell{{Text: sanitizeLine(c.Queue)}, {Text: fmt.Sprint(c.Ready)}, {Text: fmt.Sprint(c.Delayed)}, {Text: fmt.Sprint(c.Reserved)}}
+		}
+		queueLines, _, _ := (Table{Cols: []Column{{Title: "QUEUE", Min: 5, Flex: true}, {Title: "READY", Min: 3, Align: AlignRight}, {Title: "DELAYED", Min: 3, Align: AlignRight}, {Title: "RESERVED", Min: 3, Align: AlignRight}}, Rows: rows, Cursor: -1, Width: m.clipWidth()}).Render(len(rows))
+		lines = append(lines, queueLines...)
+		if len(m.jobs.counts) > 3 {
+			lines = append(lines, lipgloss.NewStyle().Foreground(colMuted).Render(fmt.Sprintf("… +%d queues", len(m.jobs.counts)-3)))
+		}
+	} else {
+		lines = append(lines, metaLine(fmt.Sprintf("ready %d · delayed %d · reserved %d", totalReady, totalDelayed, totalReserved), "", m.clipWidth()))
 	}
 	lines = append(lines, fmt.Sprintf("totals ready=%d delayed=%d reserved=%d  failed: %d%s", totalReady, totalDelayed, totalReserved, len(m.jobs.failed), func() string {
 		if len(m.jobs.failed) == 100 {
@@ -162,70 +169,21 @@ func (m Model) jobRows(overhead int) int {
 	return max(1, rows)
 }
 func (m Model) pendingTable(w int) []string {
-	all := make([]int, len(m.jobs.pending))
-	for i := range all {
-		all[i] = i
+	rows := make([][]Cell, len(m.jobs.pending))
+	for i, j := range m.jobs.pending {
+		st := levelStyle(map[string]string{"ready": "INFO", "delayed": "WARNING", "reserved": "DEBUG"}[j.State])
+		rows[i] = []Cell{{Text: fmt.Sprint(j.ID)}, {Text: sanitizeLine(j.State), Style: &st}, {Text: sanitizeLine(j.Queue)}, {Text: sanitizeLine(j.Class)}, {Text: fmt.Sprint(j.Attempts)}}
 	}
-	overhead := 1 + min(3, len(m.jobs.counts)) + 1 + 1 + 1
-	if len(m.jobs.counts) > 3 {
-		overhead++
-	}
-	if m.jobs.status != "" {
-		overhead += 2
-	}
-	s, e := window(all, m.jobs.pendingCursor, m.jobRows(overhead))
-	out := []string{lipgloss.NewStyle().Foreground(colMuted).Bold(true).Render("ID  STATE     QUEUE  CLASS" + func() string {
-		if m.width >= 80 {
-			return "  TRIES"
-		}
-		return ""
-	}())}
-	for _, i := range all[s:e] {
-		j := m.jobs.pending[i]
-		stateText := sanitizeLine(j.State)
-		state := levelStyle(map[string]string{"ready": "INFO", "delayed": "WARNING", "reserved": "DEBUG"}[stateText]).Render(padRight(stateText, 9))
-		class := sanitizeLine(j.Class)
-		if w != 0 {
-			class = truncate(class, max(8, w-32))
-		}
-		line := fmt.Sprintf("%d  %s  %-8s  %s", j.ID, state, sanitizeLine(j.Queue), class)
-		if m.width >= 80 {
-			line += fmt.Sprintf("  %d", j.Attempts)
-		}
-		if i == m.jobs.pendingCursor {
-			line = selectedStyle.Render(line)
-		}
-		out = append(out, truncate(line, w))
-	}
-	return append(out, fmt.Sprintf("rows %d–%d of %d", s+1, e, len(all)))
+	lines, s, e := (Table{Cols: []Column{{"ID", 2, 0, false, AlignRight, 0}, {"STATE", 5, 9, false, AlignLeft, 0}, {"QUEUE", 3, 16, false, AlignLeft, 0}, {"CLASS", 8, 0, true, AlignLeft, 0}, {"TRIES", 3, 0, false, AlignRight, 3}}, Rows: rows, Cursor: m.jobs.pendingCursor, Width: w}).Render(m.jobRows(6))
+	return append(lines, metaLine("", fmt.Sprintf("%d–%d of %d", s+1, e, len(rows)), w))
 }
 func (m Model) failedTable(w int) []string {
-	all := make([]int, len(m.jobs.failed))
-	for i := range all {
-		all[i] = i
+	rows := make([][]Cell, len(m.jobs.failed))
+	for i, j := range m.jobs.failed {
+		rows[i] = []Cell{{Text: fmt.Sprint(j.ID)}, {Text: sanitizeLine(j.Queue)}, {Text: sanitizeLine(j.Class)}, {Text: j.FailedAt.Format("2006-01-02 15:04")}}
 	}
-	overhead := 1 + min(3, len(m.jobs.counts)) + 1 + 1 + 1
-	if len(m.jobs.counts) > 3 {
-		overhead++
-	}
-	if m.jobs.status != "" {
-		overhead += 2
-	}
-	s, e := window(all, m.jobs.failedCursor, m.jobRows(overhead))
-	out := []string{lipgloss.NewStyle().Foreground(colMuted).Bold(true).Render("ID  QUEUE  CLASS  FAILED AT")}
-	for _, i := range all[s:e] {
-		j := m.jobs.failed[i]
-		class := sanitizeLine(j.Class)
-		if w != 0 {
-			class = truncate(class, max(8, w-42))
-		}
-		line := fmt.Sprintf("%d  %-8s  %s  %s", j.ID, sanitizeLine(j.Queue), class, j.FailedAt.Format("2006-01-02 15:04"))
-		if i == m.jobs.failedCursor {
-			line = selectedStyle.Render(line)
-		}
-		out = append(out, truncate(line, w))
-	}
-	return append(out, fmt.Sprintf("rows %d–%d of %d", s+1, e, len(all)))
+	lines, s, e := (Table{Cols: []Column{{"ID", 2, 0, false, AlignRight, 0}, {"QUEUE", 3, 16, false, AlignLeft, 0}, {"CLASS", 8, 0, true, AlignLeft, 0}, {"FAILED AT", 10, 16, false, AlignLeft, 3}}, Rows: rows, Cursor: m.jobs.failedCursor, Width: w}).Render(m.jobRows(6))
+	return append(lines, metaLine("", fmt.Sprintf("%d–%d of %d", s+1, e, len(rows)), w))
 }
 func (m Model) pendingDetail() string {
 	j := m.jobs.pending[m.jobs.pendingCursor]
@@ -325,7 +283,7 @@ func (m Model) handleJobsKey(k string) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if k == "R" || k == "d" {
-		if m.jobs.view != "failed" || len(m.jobs.failed) == 0 || m.settings.Root == "" {
+		if m.jobs.view != "failed" || len(m.jobs.failed) == 0 || (m.settings.Root == "" && !m.demo) {
 			return m, nil
 		}
 		f := m.jobs.failed[m.jobs.failedCursor]
@@ -338,20 +296,40 @@ func (m Model) handleJobsKey(k string) (Model, tea.Cmd) {
 			desc = "forget " + f.Class + " " + id
 		}
 		root := m.settings.Root
-		m.jobs.confirm = &confirmAction{desc: desc, run: func() tea.Cmd { return artisanCmd(root, k, id) }}
+		run := func() tea.Cmd { return artisanCmd(root, k, id) }
+		if m.demo {
+			desc = "[demo] " + desc
+			run = demoActionCmd
+		}
+		m.jobs.confirm = &confirmAction{desc: desc, run: run}
 		return m, nil
 	}
-	if (k == "A" || k == "F") && (m.jobs.view != "failed" || len(m.jobs.failed) == 0 || m.settings.Root == "") {
+	if (k == "A" || k == "F") && (m.jobs.view != "failed" || len(m.jobs.failed) == 0 || (m.settings.Root == "" && !m.demo)) {
 		return m, nil
 	}
 	root := m.settings.Root
 	if k == "A" {
-		m.jobs.confirm = &confirmAction{desc: fmt.Sprintf("retry all %d failed jobs", len(m.jobs.failed)), need: "RETRY ALL", run: func() tea.Cmd { return artisanCmd(root, "A", "") }}
+		desc := fmt.Sprintf("retry all %d failed jobs", len(m.jobs.failed))
+		run := func() tea.Cmd { return artisanCmd(root, "A", "") }
+		if m.demo {
+			desc = "[demo] " + desc
+			run = demoActionCmd
+		}
+		m.jobs.confirm = &confirmAction{desc: desc, need: "RETRY ALL", run: run}
 	}
 	if k == "F" {
-		m.jobs.confirm = &confirmAction{desc: fmt.Sprintf("permanently deletes %d failed jobs", len(m.jobs.failed)), need: "FLUSH", run: func() tea.Cmd { return artisanCmd(root, "F", "") }}
+		desc := fmt.Sprintf("permanently deletes %d failed jobs", len(m.jobs.failed))
+		run := func() tea.Cmd { return artisanCmd(root, "F", "") }
+		if m.demo {
+			desc = "[demo] " + desc
+			run = demoActionCmd
+		}
+		m.jobs.confirm = &confirmAction{desc: desc, need: "FLUSH", run: run}
 	}
 	return m, nil
+}
+func demoActionCmd() tea.Cmd {
+	return func() tea.Msg { return artisanDoneMsg{out: "demo: no action performed"} }
 }
 func clampCursor(cursor, length int) int { return min(max(0, cursor), max(0, length-1)) }
 func firstLines(s string, n int) string {

@@ -98,12 +98,12 @@ func TestStatusLine(t *testing.T) {
 		{
 			name: "not Laravel",
 			err:  config.ErrNotLaravel,
-			want: "Not a Laravel project (no artisan found)",
+			want: "Not a Laravel project (no artisan found) · try: larascope --demo",
 		},
 		{
 			name: "wrapped not Laravel",
 			err:  fmt.Errorf("load config: %w", config.ErrNotLaravel),
-			want: "Not a Laravel project (no artisan found)",
+			want: "Not a Laravel project (no artisan found) · try: larascope --demo",
 		},
 		{
 			name: "generic error",
@@ -476,15 +476,15 @@ func TestLogCursorJumpKeysUpdateVisibleEntries(t *testing.T) {
 
 	m, _ = updateWithKey(t, m, runeKey("g"))
 	view := m.View()
-	for _, want := range []string{"msg0", "(1/30)"} {
+	for _, want := range []string{"msg0", "1–"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view after g does not contain %q", want)
 		}
 	}
 
 	m, _ = updateWithKey(t, m, runeKey("G"))
-	if !strings.Contains(m.View(), "(30/30)") {
-		t.Error("view after G does not contain \"(30/30)\"")
+	if !strings.Contains(m.View(), "of 30") {
+		t.Error("view after G does not contain row count")
 	}
 }
 

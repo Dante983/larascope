@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -10,6 +11,12 @@ import (
 )
 
 func main() {
+	demo := flag.Bool("demo", false, "offline demo with sample data (no database, no Artisan, no network)")
+	flag.Parse()
+	if *demo {
+		run(tui.NewDemo())
+		return
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -21,6 +28,9 @@ func main() {
 		entries, logErr := tui.LoadLogs(settings.Root)
 		m = m.WithLogs(entries, logErr)
 	}
+	run(m)
+}
+func run(m tui.Model) {
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

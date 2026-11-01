@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestTruncateAndWindow(t *testing.T) {
@@ -79,6 +80,46 @@ func TestClipBody(t *testing.T) {
 	for _, h := range []int{0, -1} {
 		if got := clipBody(lines, h); got != lines {
 			t.Fatalf("h=%d changed body: %q", h, got)
+		}
+	}
+}
+
+func TestDemoViewLayoutBounds(t *testing.T) {
+	for _, size := range [][2]int{{40, 10}, {80, 24}, {120, 30}} {
+		for _, tab := range []Tab{TabLogs, TabJobs, TabConnections} {
+			m := NewDemo()
+			m.width, m.height, m.active = size[0], size[1], tab
+			for _, variant := range []string{"plain", "help"} {
+				viewModel := m
+				if variant == "help" {
+					viewModel.showHelp = true
+				}
+				lines := strings.Split(viewModel.View(), "\n")
+				if len(lines) > size[1] {
+					t.Fatalf("%v/%v has %d lines, height %d", size, tab, len(lines), size[1])
+				}
+				for _, line := range lines {
+					if ansi.StringWidth(line) > size[0] {
+						t.Fatalf("%v/%v/%s overflows: %q", size, tab, variant, line)
+					}
+				}
+			}
+		}
+		m := NewDemo()
+		m.width, m.height = size[0], size[1]
+		m.detail = true
+		for _, line := range strings.Split(m.View(), "\n") {
+			if ansi.StringWidth(line) > size[0] {
+				t.Fatalf("logs detail at %v overflows: %q", size, line)
+			}
+		}
+	}
+	m := NewDemo()
+	m.width, m.height = 40, 10
+	lines := strings.Split(m.View(), "\n")
+	for _, line := range lines[len(lines)-2:] {
+		if ansi.StringWidth(line) > 40 {
+			t.Fatalf("demo footer overflows: %q", line)
 		}
 	}
 }

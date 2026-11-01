@@ -12,7 +12,6 @@ var (
 	colOK     = lipgloss.AdaptiveColor{Light: "28", Dark: "42"}
 	colWarn   = lipgloss.AdaptiveColor{Light: "130", Dark: "214"}
 	colErr    = lipgloss.AdaptiveColor{Light: "160", Dark: "203"}
-	colInfo   = lipgloss.AdaptiveColor{Light: "25", Dark: "75"}
 )
 
 var selectedStyle = lipgloss.NewStyle().Reverse(true)
@@ -24,12 +23,27 @@ func levelStyle(level string) lipgloss.Style {
 	case "WARNING":
 		return lipgloss.NewStyle().Foreground(colWarn)
 	case "NOTICE", "INFO":
-		return lipgloss.NewStyle().Foreground(colInfo)
+		return lipgloss.NewStyle()
 	case "DEBUG":
 		return lipgloss.NewStyle().Foreground(colMuted)
 	default:
 		return lipgloss.NewStyle()
 	}
+}
+func statusDot(ok bool) (string, lipgloss.Style) {
+	if ok {
+		return "● up", lipgloss.NewStyle().Foreground(colOK)
+	}
+	return "○ down", lipgloss.NewStyle().Foreground(colErr)
+}
+func metaLine(left, right string, w int) string {
+	if w == 0 && right != "" {
+		return lipgloss.NewStyle().Foreground(colMuted).Render(left + "  " + right)
+	}
+	if w > 0 && lipgloss.Width(left)+lipgloss.Width(right)+2 <= w {
+		return lipgloss.NewStyle().Foreground(colMuted).Render(left + strings.Repeat(" ", w-lipgloss.Width(left)-lipgloss.Width(right)) + right)
+	}
+	return lipgloss.NewStyle().Foreground(colMuted).Render(left)
 }
 func badge(text string, c lipgloss.TerminalColor) string {
 	return lipgloss.NewStyle().Foreground(c).Bold(true).Render(" " + text + " ")

@@ -1,13 +1,9 @@
 package tui
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
-	"larascope/internal/artisan"
-	"larascope/internal/conns"
-	"larascope/internal/jobs"
 	"path/filepath"
 	"strings"
 	"time"
@@ -47,6 +43,8 @@ type Model struct {
 	visible         []int
 	jobs            jobsState
 	conns           connsState
+	demo            bool
+	notice          string
 }
 
 const maxLogLines = 20
@@ -82,8 +80,14 @@ func (m Model) WithLogs(entries []logs.Entry, err error) Model {
 }
 
 func (m Model) statusLine() string {
+	if m.demo {
+		if m.notice != "" {
+			return "DEMO · " + m.notice
+		}
+		return "DEMO · sample data · no database or Artisan access"
+	}
 	if errors.Is(m.cfgErr, config.ErrNotLaravel) {
-		return "Not a Laravel project (no artisan found)"
+		return "Not a Laravel project (no artisan found) · try: larascope --demo"
 	}
 	if m.cfgErr != nil {
 		return "Config error: " + m.cfgErr.Error()
@@ -112,6 +116,9 @@ func (m Model) statusLine() string {
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.demo {
+		return nil
+	}
 	if m.follow {
 		return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return followTickMsg{} })
 	}
@@ -128,7 +135,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logsLoadedMsg:
 		return m.reloadLogs(msg), nil
 	case followTickMsg:
-		if m.follow && m.active == TabLogs && m.settings.Root != "" {
+		if m.liveAllowed() && m.follow && m.active == TabLogs && m.settings.Root != "" {
 			return m, tea.Batch(loadLogsCmd(m.settings.Root), tea.Tick(2*time.Second, func(time.Time) tea.Msg { return followTickMsg{} }))
 		}
 	case jobsLoadedMsg:
@@ -141,6 +148,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.conns.results = msg.results
 		m.conns.checked = time.Now()
 	case connsTickMsg:
+		if m.demo {
+			return m, nil
+		}
 		if m.active != TabConnections {
 			m.conns.connsTicking = false
 			return m, nil
@@ -148,8 +158,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.startConnsLoad(), connsTick())
 	case artisanDoneMsg:
 		m.jobs.status = config.Redact(msg.out+errText(msg.err), m.settings.Secrets()...)
+		if !m.liveAllowed() {
+			return m, nil
+		}
 		return m, loadJobsCmd(m.settings)
 	case tea.KeyMsg:
+		if msg.String() != "r" && msg.String() != "f" {
+			m.notice = ""
+		}
 		if m.jobs.confirm != nil {
 			a := m.jobs.confirm
 			if msg.String() == "ctrl+c" {
@@ -204,9 +220,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "tab":
 			m.active = Tab((int(m.active) + 1) % len(tabNames))
+			m.notice = ""
 			return m, m.tabLoadCmd()
 		case "shift+tab":
 			m.active = Tab((int(m.active) - 1 + len(tabNames)) % len(tabNames))
+			m.notice = ""
 			return m, m.tabLoadCmd()
 		case "1":
 			m.active = TabLogs
@@ -219,6 +237,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.active = TabConnections
 			return m, m.tabLoadCmd()
 		case "r":
+			if m.demo {
+				m.notice = "demo: sample data, refresh disabled"
+				return m, nil
+			}
 			if m.active == TabLogs && !m.showHelp && m.settings.Root != "" {
 				return m, loadLogsCmd(m.settings.Root)
 			}
@@ -244,6 +266,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.grouped = !m.grouped
 			}
 		case "f":
+			if m.demo {
+				m.notice = "demo: sample data, refresh disabled"
+				return m, nil
+			}
 			if m.active == TabLogs && !m.showHelp {
 				m.follow = !m.follow
 				if m.follow {
@@ -260,9 +286,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.active == TabLogs && !m.showHelp {
 				m = m.moveCursor(-1)
 			}
+			if m.active == TabConnections && !m.showHelp {
+				m.conns.cursor = clampCursor(m.conns.cursor-1, len(m.conns.results))
+			}
 		case "down", "j":
 			if m.active == TabLogs && !m.showHelp {
 				m = m.moveCursor(1)
+			}
+			if m.active == TabConnections && !m.showHelp {
+				m.conns.cursor = clampCursor(m.conns.cursor+1, len(m.conns.results))
 			}
 		case "g":
 			if m.active == TabLogs && !m.showHelp && !m.detail {
@@ -349,6 +381,9 @@ func (m Model) jumpCursor(to int) Model {
 	return m
 }
 func (m *Model) tabLoadCmd() tea.Cmd {
+	if !m.liveAllowed() {
+		return nil
+	}
 	if m.active == TabJobs && !m.jobs.loaded && m.settings.Root != "" {
 		return loadJobsCmd(m.settings)
 	}
@@ -368,7 +403,11 @@ func (m Model) View() string {
 		return "Terminal too small (need 40x10)\nq: quit"
 	}
 	bar := strings.Split(tabBar(m.active, m.contentWidth()), "\n")
-	top := lipgloss.NewStyle().Foreground(colAccent).Bold(true).Render("larascope") + "  " + bar[0]
+	top := lipgloss.NewStyle().Foreground(colAccent).Bold(true).Render("larascope")
+	if m.demo {
+		top += "  " + lipgloss.NewStyle().Foreground(colWarn).Reverse(true).Bold(true).Render(" DEMO ")
+	}
+	top += "  " + bar[0]
 	if m.width >= 80 && m.settings.Root != "" {
 		top += "  " + filepath.Base(m.settings.Root)
 	}
@@ -392,6 +431,8 @@ func (m Model) footer() string {
 			hints = "type query, enter apply, esc clear"
 		} else if m.detail {
 			hints = "up/down: previous/next entry  enter/esc: back  ?: help"
+		} else if m.demo {
+			hints = "up/down: move  enter: detail  /: search  l: level  s: group  ?: help"
 		} else {
 			hints = "up/down: move  enter: detail  /: search  l: level  s: group  f: follow"
 		}
@@ -400,7 +441,11 @@ func (m Model) footer() string {
 		hints = "p: pending/failed  j/k: move  enter: detail  R retry  d forget  A retry all  F flush"
 	}
 	if m.active == TabConnections {
-		hints = "r: refresh  ?: help  q: quit"
+		if m.demo {
+			hints = "up/down: move  ?: help  q: quit"
+		} else {
+			hints = "up/down: move  r: refresh  ?: help  q: quit"
+		}
 	}
 	if m.jobs.confirm != nil {
 		if m.jobs.confirm.need == "" {
@@ -437,12 +482,22 @@ func (m Model) centered() bool {
 	if m.active == TabLogs {
 		return !m.logLoaded || m.logErr != nil || len(m.entries) == 0
 	}
-	return (m.active == TabJobs && m.settings.Root == "") || (m.active == TabConnections && (m.conns.loading && len(m.conns.results) == 0 || len(m.conns.results) == 0))
+	return (m.active == TabJobs && m.settings.Root == "" && !m.demo) || (m.active == TabConnections && (m.conns.loading && len(m.conns.results) == 0 || len(m.conns.results) == 0))
 }
 
 func (m Model) body() string {
 	if m.showHelp {
-		return lipgloss.NewStyle().Width(max(1, m.contentWidth()-4)).Border(lipgloss.RoundedBorder()).BorderForeground(colMuted).Padding(0, 1).Render("Global\n" + keyHint("tab", "next tab") + "\n" + keyHint("1/2/3", "select tab") + "\n" + keyHint("?", "toggle help") + "\n" + keyHint("q", "quit") + "\n\nLogs\nup/k, down/j: move in logs\ng/G: first/last entry\npgup/pgdown: page up/down\nenter: toggle entry detail\nesc: back to list\nr: reload log file\nl: level filter  /: search  s: group  f: follow\n\nJobs\np: pending/failed  j/k: move  enter: detail  R/d: retry/forget selected  A: retry all (type to confirm)  F: flush (type to confirm)\n\nConnections\nr: refresh")
+		help := "Global\n" + keyHint("tab", "next tab") + "\n" + keyHint("1/2/3", "select tab") + "\n" + keyHint("?", "toggle help") + "\n" + keyHint("q", "quit") + "\n\nUse larascope --demo for offline sample data.\n\nLogs\nup/k, down/j: move in logs\ng/G: first/last entry\npgup/pgdown: page up/down\nenter: toggle entry detail\nesc: back to list\n"
+		if m.demo {
+			help += "l: level filter  /: search  s: group\nreload and follow disabled in demo\n"
+		} else {
+			help += "r: reload log file\nl: level filter  /: search  s: group  f: follow\n"
+		}
+		help += "\nJobs\np: pending/failed  j/k: move  enter: detail  R/d: retry/forget selected  A: retry all (type to confirm)  F: flush (type to confirm)\n\nConnections\nup/down: move"
+		if !m.demo {
+			help += "  r: refresh"
+		}
+		return lipgloss.NewStyle().Width(max(1, m.contentWidth()-4)).Border(lipgloss.RoundedBorder()).BorderForeground(colMuted).Padding(0, 1).Render(help)
 	}
 
 	switch m.active {
@@ -478,25 +533,7 @@ func (m Model) logsBody() string {
 		return m.filteredLogsBody()
 	}
 
-	all := make([]int, len(m.entries))
-	for i := range m.entries {
-		all[i] = i
-	}
-	start, end := window(all, m.cursor, m.listHeight())
-	lines := make([]string, 0, end-start)
-	for _, i := range all[start:end] {
-		lines = append(lines, m.renderLogRow(m.entries[i], i == m.cursor, m.clipWidth()))
-	}
-	counts := levelCounts(m.entries, all)
-	summary := ""
-	if m.width >= 80 {
-		summary = fmt.Sprintf("  ERROR %d  WARNING %d  INFO %d  DEBUG %d", counts["ERROR"], counts["WARNING"], counts["INFO"], counts["DEBUG"])
-	}
-	prompt := ""
-	if m.searching {
-		prompt = "/ " + sanitizeLine(m.searchInput) + "▏\n"
-	}
-	return fmt.Sprintf("%d entries  (%d/%d)%s\n%s%s", len(m.entries), m.cursor+1, len(m.entries), summary, prompt, strings.Join(lines, "\n"))
+	return m.logTableBody(m.visible)
 }
 
 func levelCounts(entries []logs.Entry, idx []int) map[string]int {
@@ -505,26 +542,6 @@ func levelCounts(entries []logs.Entry, idx []int) map[string]int {
 		out[strings.ToUpper(entries[i].Level)]++
 	}
 	return out
-}
-func (m Model) renderLogRow(e logs.Entry, sel bool, w int) string {
-	msg := sanitizeLine(strings.SplitN(e.Message, "\n", 2)[0])
-	prefix := "  "
-	if sel {
-		prefix = "▸ "
-	}
-	level := sanitizeLine(e.Level)
-	head := e.Time.Format("2006-01-02 15:04:05") + " " + padRight(level, 8) + " "
-	if w > 0 {
-		msg = truncateStrict(msg, w-lipgloss.Width(prefix+head))
-	}
-	if m.logFilter.Query != "" && !sel {
-		msg = highlight(msg, sanitizeLine(m.logFilter.Query))
-	}
-	line := prefix + e.Time.Format("2006-01-02 15:04:05") + " " + levelStyle(level).Render(padRight(level, 8)) + " " + msg
-	if sel {
-		return selectedStyle.Render(line)
-	}
-	return line
 }
 
 func (m Model) detailBody() string {
@@ -538,7 +555,7 @@ func (m Model) detailBody() string {
 	if len(message) > messageCap {
 		message = append(message[:messageCap], fmt.Sprintf("… %d more lines", len(message)-messageCap))
 	}
-	body := badge(sanitizeLine(entry.Level), colInfo) + " " + entry.Time.Format("2006-01-02 15:04:05") + " " + sanitizeLine(entry.Env) + fmt.Sprintf("  entry %d/%d", m.cursor+1, len(m.entries)) + "\n\n" + strings.Join(message, "\n")
+	body := levelStyle(entry.Level).Render(sanitizeLine(entry.Level)) + " " + entry.Time.Format("2006-01-02 15:04:05") + " " + sanitizeLine(entry.Env) + fmt.Sprintf("  entry %d/%d", m.cursor+1, len(m.entries)) + "\n\n" + strings.Join(message, "\n")
 	if len(entry.Trace) > 0 {
 		trace := make([]string, 0, len(entry.Trace))
 		for _, line := range entry.Trace {
@@ -619,17 +636,42 @@ func (m Model) filteredLogsBody() string {
 	if len(m.visible) == 0 {
 		return "0 entries\nesc in search clears filter / l cycles level"
 	}
-	start, end := window(m.visible, m.cursor, m.listHeight())
-	lines := []string{}
-	for _, i := range m.visible[start:end] {
-		lines = append(lines, m.renderLogRow(m.entries[i], i == m.cursor, m.clipWidth()))
-	}
-	prompt := ""
-	if m.searching {
-		prompt = "/ " + sanitizeLine(m.searchInput) + "▏\n"
-	}
-	return fmt.Sprintf("%d entries  level=%s search=%q\n%s%s", len(m.visible), m.logFilter.Level, sanitizeLine(m.logFilter.Query), prompt, strings.Join(lines, "\n"))
+	return m.logTableBody(m.visible)
 }
+func (m Model) logTableBody(indices []int) string {
+	rows := make([][]Cell, len(indices))
+	cursor := -1
+	for n, i := range indices {
+		e := m.entries[i]
+		if i == m.cursor {
+			cursor = n
+		}
+		tm := e.Time.Format("15:04:05")
+		if m.width == 0 || m.width >= 80 {
+			tm = e.Time.Format("2006-01-02 15:04:05")
+		}
+		st := levelStyle(sanitizeLine(e.Level))
+		rows[n] = []Cell{{Text: tm}, {Text: sanitizeLine(e.Level), Style: &st}, {Text: sanitizeLine(e.Env)}, {Text: sanitizeLine(strings.SplitN(e.Message, "\n", 2)[0]), Mark: sanitizeLine(m.logFilter.Query)}}
+	}
+	cols := []Column{{"TIME", 8, 19, false, AlignLeft, 3}, {"LEVEL", 5, 9, false, AlignLeft, 0}, {"ENV", 3, 10, false, AlignLeft, 2}, {"MESSAGE", 10, 0, true, AlignLeft, 0}}
+	t := Table{Cols: cols, Rows: rows, Cursor: cursor, Width: m.clipWidth()}
+	lines, s, e := t.Render(m.listHeight())
+	left := fmt.Sprintf("%d entries", len(indices))
+	if m.width >= 80 {
+		c := levelCounts(m.entries, indices)
+		left += fmt.Sprintf(" · %d error · %d warn", c["ERROR"], c["WARNING"])
+	}
+	right := ""
+	if len(indices) > 0 {
+		right = fmt.Sprintf("%d–%d of %d", s+1, e, len(indices))
+	}
+	prefix := []string{metaLine(left, right, m.clipWidth())}
+	if m.searching {
+		prefix = append(prefix, "/ "+sanitizeLine(m.searchInput)+"▏")
+	}
+	return strings.Join(append(prefix, lines...), "\n")
+}
+func (m Model) liveAllowed() bool { return !m.demo }
 func (m Model) groupedLogsBody() string {
 	gs := logs.GroupEntries(func() []logs.Entry {
 		r := []logs.Entry{}
@@ -638,17 +680,13 @@ func (m Model) groupedLogsBody() string {
 		}
 		return r
 	}())
-	all := make([]int, len(gs))
-	for i := range gs {
-		all[i] = i
+	rows := make([][]Cell, len(gs))
+	for i, g := range gs {
+		st := levelStyle(sanitizeLine(g.Sample.Level))
+		rows[i] = []Cell{{Text: fmt.Sprint(g.Count)}, {Text: sanitizeLine(g.Sample.Level), Style: &st}, {Text: sanitizeLine(strings.SplitN(g.Sample.Message, "\n", 2)[0])}}
 	}
-	start, end := window(all, 0, m.listHeight())
-	lines := make([]string, 0, end-start)
-	for _, i := range all[start:end] {
-		g := gs[i]
-		lines = append(lines, truncate(fmt.Sprintf("%5dx %s %s", g.Count, sanitizeLine(g.Sample.Level), sanitizeLine(g.Sample.Message)), m.clipWidth()))
-	}
-	return fmt.Sprintf("Grouped (%d unique)\n%s", len(gs), strings.Join(lines, "\n"))
+	lines, _, _ := (Table{Cols: []Column{{"COUNT", 3, 0, false, AlignRight, 0}, {"LEVEL", 5, 9, false, AlignLeft, 0}, {"MESSAGE", 10, 0, true, AlignLeft, 0}}, Rows: rows, Cursor: -1, Width: m.clipWidth()}).Render(m.listHeight())
+	return strings.Join(append([]string{metaLine(fmt.Sprintf("Grouped (%d unique)", len(gs)), "", m.clipWidth())}, lines...), "\n")
 }
 func errText(e error) string {
 	if e == nil {
@@ -656,12 +694,6 @@ func errText(e error) string {
 	}
 	return ": " + e.Error()
 }
-
-var _ = filepath.Join
-var _ = context.Background
-var _ = artisan.Runner{}
-var _ = jobs.ErrNoTable
-var _ = conns.Result{}
 
 func LoadLogs(root string) ([]logs.Entry, error) {
 	return logs.LoadTail(logs.LatestLogFile(root, ""), 5<<20)
