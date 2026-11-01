@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -60,6 +61,35 @@ func TestFindRoot(t *testing.T) {
 			t.Errorf("FindRoot() error = %v, want ErrNotLaravel", err)
 		}
 	})
+}
+
+func TestDriverAndPgDSN(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{{"mysql", "mysql"}, {"MariaDB", "mysql"}, {"pgsql", "pgsql"}, {"postgres", "pgsql"}, {"postgresql", "pgsql"}, {"PGSQL", "pgsql"}, {" pgsql ", "pgsql"}, {"sqlite", ""}, {"", ""}} {
+		if got := (Settings{DBConnection: tc.in}).Driver(); got != tc.want {
+			t.Errorf("Driver(%q) = %q", tc.in, got)
+		}
+	}
+	s := Settings{DBUsername: "user", DBPassword: "p@ss w/rd", DBDatabase: "app"}
+	plain := Settings{DBHost: "db", DBPort: "5433", DBUsername: "user", DBPassword: "pass", DBDatabase: "app"}
+	if got, want := plain.PgDSN(), "postgres://user:pass@db:5433/app?connect_timeout=3&default_transaction_read_only=on&sslmode=prefer"; got != want {
+		t.Fatalf("PgDSN = %q, want %q", got, want)
+	}
+	u, err := url.Parse(s.PgDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pass, ok := u.User.Password()
+	if !ok || pass != s.DBPassword || u.Host != "127.0.0.1:5432" || u.Path != "/app" {
+		t.Fatalf("PgDSN parse = %#v password=%q", u, pass)
+	}
+	if u.Query().Get("sslmode") != "prefer" || u.Query().Get("connect_timeout") != "3" || u.Query().Get("default_transaction_read_only") != "on" {
+		t.Fatalf("PgDSN query = %q", u.RawQuery)
+	}
+	got := (Settings{DBHost: "::1"}).PgDSN()
+	ipv6, err := url.Parse(got)
+	if err != nil || ipv6.Host != "[::1]:5432" {
+		t.Fatalf("IPv6 PgDSN = %q", got)
+	}
 }
 
 func TestSettingsFromEnv(t *testing.T) {

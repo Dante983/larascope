@@ -44,29 +44,33 @@ type artisanDoneMsg struct {
 
 func loadJobsCmd(s config.Settings) tea.Cmd {
 	return func() tea.Msg {
-		if s.DBConnection != "mysql" && s.DBConnection != "mariadb" {
-			if s.DBConnection == "" {
+		drv := s.Driver()
+		if drv == "" {
+			if strings.TrimSpace(s.DBConnection) == "" {
 				return jobsLoadedMsg{}
 			}
-			return jobsLoadedMsg{err: fmt.Errorf("Jobs: unsupported DB_CONNECTION %s (mysql only)", s.DBConnection)}
+			return jobsLoadedMsg{err: fmt.Errorf("Jobs: unsupported DB_CONNECTION %s (mysql, mariadb, pgsql supported)", s.DBConnection)}
+		}
+		if drv == "pgsql" && s.DBDatabase == "" {
+			return jobsLoadedMsg{err: errors.New("DB_DATABASE not set")}
 		}
 		ctx, c := context.WithTimeout(context.Background(), 3*time.Second)
 		defer c()
-		src, e := jobs.OpenMySQL(s.DSN())
+		src, e := jobs.Open(drv, s.DSNFor())
 		if e != nil {
-			return jobsLoadedMsg{err: errors.New(config.Redact(e.Error(), s.DBPassword, s.DSN()))}
+			return jobsLoadedMsg{err: errors.New(config.Redact(e.Error(), s.Secrets()...))}
 		}
 		defer src.Close()
 		p, n, e := src.Pending(ctx, 100)
 		if e != nil {
-			return jobsLoadedMsg{err: errors.New(config.Redact(e.Error(), s.DBPassword, s.DSN()))}
+			return jobsLoadedMsg{err: errors.New(config.Redact(e.Error(), s.Secrets()...))}
 		}
 		f, e := src.Failed(ctx, 100)
 		if errors.Is(e, jobs.ErrNoTable) {
 			e = nil
 		}
 		if e != nil {
-			e = errors.New(config.Redact(e.Error(), s.DBPassword, s.DSN()))
+			e = errors.New(config.Redact(e.Error(), s.Secrets()...))
 		}
 		return jobsLoadedMsg{p, n, f, e}
 	}
@@ -76,10 +80,9 @@ func (m Model) jobsBody() string {
 		return "No jobs detected yet"
 	}
 	if m.jobs.err != nil {
-		body := wrap(sanitizeLine(config.Redact(m.jobs.err.Error(), m.settings.DBPassword, m.settings.DSN())), m.clipWidth())
-		driver := strings.ToLower(strings.TrimSpace(m.settings.DBConnection))
-		if driver != "" && driver != "mysql" && driver != "mariadb" {
-			body += "\nJobs supports MySQL/MariaDB only"
+		body := wrap(sanitizeLine(config.Redact(m.jobs.err.Error(), m.settings.Secrets()...)), m.clipWidth())
+		if !m.settings.DriverSupported() && m.settings.DBConnection != "" {
+			body += "\nJobs supports MySQL/MariaDB/PostgreSQL only"
 		}
 		return body
 	}

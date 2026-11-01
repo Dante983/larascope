@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -97,11 +98,53 @@ func (s Settings) DSN() string {
 	host, port := valueOr(s.DBHost, "127.0.0.1"), valueOr(s.DBPort, "3306")
 	return s.DBUsername + ":" + s.DBPassword + "@tcp(" + host + ":" + port + ")/" + s.DBDatabase + "?timeout=3s&readTimeout=3s&parseTime=true"
 }
+
+// Driver normalizes DB_CONNECTION to a supported database driver.
+func (s Settings) Driver() string {
+	switch strings.ToLower(strings.TrimSpace(s.DBConnection)) {
+	case "mysql", "mariadb":
+		return "mysql"
+	case "pgsql", "postgres", "postgresql":
+		return "pgsql"
+	default:
+		return ""
+	}
+}
+
+func (s Settings) DriverSupported() bool { return s.Driver() != "" }
+
+func (s Settings) DSNFor() string {
+	if s.Driver() == "pgsql" {
+		return s.PgDSN()
+	}
+	return s.DSN()
+}
+
+func (s Settings) PgDSN() string {
+	host, port := valueOr(s.DBHost, "127.0.0.1"), valueOr(s.DBPort, "5432")
+	u := url.URL{Scheme: "postgres", Host: net.JoinHostPort(host, port)}
+	if s.DBUsername != "" {
+		u.User = url.UserPassword(s.DBUsername, s.DBPassword)
+	}
+	if s.DBDatabase != "" {
+		u.Path = "/" + s.DBDatabase
+	}
+	q := u.Query()
+	q.Set("sslmode", "prefer")
+	q.Set("connect_timeout", "3")
+	q.Set("default_transaction_read_only", "on")
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func (s Settings) Secrets() []string { return []string{s.DSN(), s.PgDSN(), s.DBPassword} }
+
 func Redact(v string, secrets ...string) string {
 	for _, x := range secrets {
 		if x != "" {
 			v = strings.ReplaceAll(v, x, "***")
 			v = strings.ReplaceAll(v, url.QueryEscape(x), "***")
+			v = strings.ReplaceAll(v, url.PathEscape(x), "***")
 		}
 	}
 	return v

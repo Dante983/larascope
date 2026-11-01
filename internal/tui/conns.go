@@ -23,7 +23,7 @@ func loadConnsCmd(s config.Settings) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return connsLoadedMsg{conns.Run(ctx, conns.FromSettings(s), s.DBPassword, s.DSN())}
+		return connsLoadedMsg{conns.Run(ctx, conns.FromSettings(s), s.Secrets()...)}
 	}
 }
 func connsTick() tea.Cmd {
@@ -93,7 +93,7 @@ func (m Model) connsBody() string {
 			line += "  " + lipgloss.NewStyle().Foreground(c).Render(latency)
 		}
 		if r.Err != "" {
-			err := sanitizeLine(config.Redact(r.Err, m.settings.DBPassword, m.settings.DSN()))
+			err := sanitizeLine(config.Redact(r.Err, m.settings.Secrets()...))
 			if cw := m.clipWidth(); cw > 0 {
 				err = truncateStrict(err, cw-lipgloss.Width(line)-2)
 			}

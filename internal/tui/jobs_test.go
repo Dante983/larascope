@@ -431,3 +431,22 @@ func TestJobsLoadedClampWhenShrinks(t *testing.T) {
 		t.Fatal("empty clamp")
 	}
 }
+
+func TestJobsDriverErrors(t *testing.T) {
+	pg := config.Settings{DBConnection: "pgsql", DBDatabase: "app"}
+	if msg := loadJobsCmd(pg)().(jobsLoadedMsg); msg.err == nil || strings.Contains(msg.err.Error(), "unsupported") {
+		t.Fatalf("pgsql message=%#v", msg)
+	}
+	empty := config.Settings{DBConnection: "pgsql"}
+	if msg := loadJobsCmd(empty)().(jobsLoadedMsg); msg.err == nil || msg.err.Error() != "DB_DATABASE not set" {
+		t.Fatalf("empty pg message=%#v", msg)
+	}
+	m := Model{settings: config.Settings{Root: "/x", DBConnection: "sqlite"}, jobs: jobsState{err: errors.New("unsupported")}}
+	if got := m.jobsBody(); !strings.Contains(got, "Jobs supports MySQL/MariaDB/PostgreSQL only") {
+		t.Fatal(got)
+	}
+	m = Model{settings: config.Settings{Root: "/x", DBConnection: "pgsql", DBPassword: "secret"}, jobs: jobsState{err: errors.New("access secret")}}
+	if strings.Contains(m.jobsBody(), "secret") {
+		t.Fatal("password displayed")
+	}
+}

@@ -147,7 +147,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.startConnsLoad(), connsTick())
 	case artisanDoneMsg:
-		m.jobs.status = config.Redact(msg.out+errText(msg.err), m.settings.DBPassword, m.settings.DSN())
+		m.jobs.status = config.Redact(msg.out+errText(msg.err), m.settings.Secrets()...)
 		return m, loadJobsCmd(m.settings)
 	case tea.KeyMsg:
 		if m.jobs.confirm != nil {
@@ -463,7 +463,7 @@ func (m Model) logsBody() string {
 		return "No log file found (storage/logs/laravel.log)"
 	}
 	if m.logErr != nil {
-		return "Log error: " + sanitizeLine(config.Redact(m.logErr.Error(), m.settings.DBPassword, m.settings.DSN()))
+		return "Log error: " + sanitizeLine(config.Redact(m.logErr.Error(), m.settings.Secrets()...))
 	}
 	if len(m.entries) == 0 {
 		return "Log file has no entries"

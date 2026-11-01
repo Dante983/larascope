@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"strings"
 	"time"
 )
@@ -36,16 +37,67 @@ type Source interface {
 	Pending(context.Context, int) ([]PendingRow, []QueueCount, error)
 	Failed(context.Context, int) ([]FailedRow, error)
 }
-type MySQLSource struct{ db *sql.DB }
+type dialect struct {
+	countsSQL    string
+	countsArgs   func() []any
+	pendingSQL   string
+	columnsSQL   string
+	checkDBSQL   string
+	failedSelect func(map[string]bool) string
+}
 
-func OpenMySQL(dsn string) (*MySQLSource, error) {
-	db, e := sql.Open("mysql", dsn)
+type DBSource struct {
+	db *sql.DB
+	d  dialect
+}
+
+type MySQLSource = DBSource
+
+var mysqlDialect = dialect{
+	countsSQL:    "SELECT queue, SUM(reserved_at IS NOT NULL), SUM(reserved_at IS NULL AND available_at<=UNIX_TIMESTAMP()), SUM(reserved_at IS NULL AND available_at>UNIX_TIMESTAMP()) FROM jobs GROUP BY queue",
+	pendingSQL:   "SELECT id, queue, attempts, reserved_at, available_at, created_at, payload FROM jobs ORDER BY id DESC LIMIT ?",
+	columnsSQL:   "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='failed_jobs'",
+	checkDBSQL:   "SELECT DATABASE()",
+	failedSelect: func(c map[string]bool) string { return buildFailedSelectFor(c, "?") },
+}
+
+var pgDialect = dialect{
+	countsSQL:    "SELECT queue, COUNT(*) FILTER (WHERE reserved_at IS NOT NULL), COUNT(*) FILTER (WHERE reserved_at IS NULL AND available_at <= $1::bigint), COUNT(*) FILTER (WHERE reserved_at IS NULL AND available_at > $1::bigint) FROM jobs GROUP BY queue",
+	countsArgs:   func() []any { return []any{time.Now().Unix()} },
+	pendingSQL:   "SELECT id, queue, attempts, reserved_at, available_at, created_at, payload FROM jobs ORDER BY id DESC LIMIT $1",
+	columnsSQL:   "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'failed_jobs'",
+	checkDBSQL:   "SELECT current_database()",
+	failedSelect: func(c map[string]bool) string { return buildFailedSelectFor(c, "$1") },
+}
+
+func openDB(driver, dsn string, d dialect) (*DBSource, error) {
+	db, e := sql.Open(driver, dsn)
 	if e == nil {
 		db.SetMaxOpenConns(1)
 	}
-	return &MySQLSource{db}, e
+	return &DBSource{db: db, d: d}, e
 }
-func (s *MySQLSource) Close() error { return s.db.Close() }
+
+func OpenMySQL(dsn string) (*DBSource, error) {
+	return openDB("mysql", dsn, mysqlDialect)
+}
+
+func OpenPostgres(dsn string) (*DBSource, error) {
+	return openDB("pgx", dsn, pgDialect)
+}
+
+func Open(driver, dsn string) (*DBSource, error) {
+	switch driver {
+	case "mysql":
+		return OpenMySQL(dsn)
+	case "pgsql":
+		return OpenPostgres(dsn)
+	default:
+		return nil, errors.New("unsupported driver")
+	}
+}
+
+func (s *DBSource) Close() error { return s.db.Close() }
 func classify(r *int64, a, now int64) string {
 	if r != nil {
 		return "reserved"
@@ -56,16 +108,19 @@ func classify(r *int64, a, now int64) string {
 	return "ready"
 }
 func buildFailedSelect(c map[string]bool) string {
+	return buildFailedSelectFor(c, "?")
+}
+func buildFailedSelectFor(c map[string]bool, placeholder string) string {
 	fields := []string{"id"}
 	for _, x := range []string{"uuid", "connection", "queue", "payload", "exception", "failed_at"} {
 		if c[x] {
 			fields = append(fields, x)
 		}
 	}
-	return "SELECT " + strings.Join(fields, ",") + " FROM failed_jobs ORDER BY id DESC LIMIT ?"
+	return "SELECT " + strings.Join(fields, ",") + " FROM failed_jobs ORDER BY id DESC LIMIT " + placeholder
 }
-func (s *MySQLSource) Pending(ctx context.Context, limit int) ([]PendingRow, []QueueCount, error) {
-	rows, e := s.db.QueryContext(ctx, "SELECT id, queue, attempts, reserved_at, available_at, created_at, payload FROM jobs ORDER BY id DESC LIMIT ?", limit)
+func (s *DBSource) Pending(ctx context.Context, limit int) ([]PendingRow, []QueueCount, error) {
+	rows, e := s.db.QueryContext(ctx, s.d.pendingSQL, limit)
 	if e != nil {
 		return nil, nil, e
 	}
@@ -101,7 +156,11 @@ func (s *MySQLSource) Pending(ctx context.Context, limit int) ([]PendingRow, []Q
 	if e = rows.Close(); e != nil {
 		return nil, nil, e
 	}
-	counts, e := s.db.QueryContext(ctx, "SELECT queue, SUM(reserved_at IS NOT NULL), SUM(reserved_at IS NULL AND available_at<=UNIX_TIMESTAMP()), SUM(reserved_at IS NULL AND available_at>UNIX_TIMESTAMP()) FROM jobs GROUP BY queue")
+	var countsArgs []any
+	if s.d.countsArgs != nil {
+		countsArgs = s.d.countsArgs()
+	}
+	counts, e := s.db.QueryContext(ctx, s.d.countsSQL, countsArgs...)
 	if e != nil {
 		return out, nil, e
 	}
@@ -119,15 +178,15 @@ func (s *MySQLSource) Pending(ctx context.Context, limit int) ([]PendingRow, []Q
 	}
 	return out, cs, nil
 }
-func (s *MySQLSource) Failed(ctx context.Context, limit int) ([]FailedRow, error) {
+func (s *DBSource) Failed(ctx context.Context, limit int) ([]FailedRow, error) {
 	var database sql.NullString
-	if e := s.db.QueryRowContext(ctx, "SELECT DATABASE()").Scan(&database); e != nil {
+	if e := s.db.QueryRowContext(ctx, s.d.checkDBSQL).Scan(&database); e != nil {
 		return nil, e
 	}
 	if !database.Valid || database.String == "" {
 		return nil, errors.New("DB_DATABASE not set")
 	}
-	r, e := s.db.QueryContext(ctx, "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='failed_jobs'")
+	r, e := s.db.QueryContext(ctx, s.d.columnsSQL)
 	if e != nil {
 		return nil, e
 	}
@@ -150,7 +209,7 @@ func (s *MySQLSource) Failed(ctx context.Context, limit int) ([]FailedRow, error
 	if !cols["id"] {
 		return nil, ErrNoTable
 	}
-	rows, e := s.db.QueryContext(ctx, buildFailedSelect(cols), limit)
+	rows, e := s.db.QueryContext(ctx, s.d.failedSelect(cols), limit)
 	if e != nil {
 		return nil, e
 	}

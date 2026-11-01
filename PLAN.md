@@ -26,10 +26,10 @@ Assumed stack: **Go + Bubble Tea** (Bubbles, Lip Gloss). Single static binary, r
 | Item | Finding |
 |---|---|
 | Framework | Laravel **11.25.0** (modern `failed_jobs` schema, payload format, `queue:retry` works normally) |
-| Local queue driver | **database** (`jobs` table in MySQL) |
+| Local queue driver | **database** (`jobs` table in MySQL/MariaDB/PostgreSQL) |
 | Production queue driver | **RabbitMQ** |
 | Queue code | Only `php-amqplib` installed. Custom RabbitMQ driver **vendored in the app**: `app/Extensions/Queue/RabbitMQ/` (Connector, Queue, Job, ServiceProvider) plus a custom `app/Extensions/Queue/Worker.php` |
-| Failed jobs | `failed_jobs` table in **MySQL** (`config/queue.php` failed block) |
+| Failed jobs | `failed_jobs` table in **MySQL/MariaDB/PostgreSQL** (`config/queue.php` failed block) |
 | Other AMQP usage | Raw (non-job) messages: `RabbitMQListener`, `TranscriptionRabbitMQService`, `ConsumeTranscriptionResults`, Metis / LaunchMoreBrands services |
 | Local RabbitMQ | Docker container, vhost `/`, **currently empty** (no queues/bindings) because local uses the database driver |
 | Config style | Legacy-looking `config/queue.php` (`login` key, `QUEUE_DRIVER` env names) on a modern Laravel |
@@ -69,14 +69,14 @@ larascope/
     logs/               tailer, parser, fingerprinter, trace renderer
     jobs/               JobSource interface + implementations
     queues/             QueueSource interface + RabbitMQ implementation
-    conns/              health checks (MySQL, RabbitMQ, Redis, ClickHouse, Docker)
+    conns/              health checks (MySQL/MariaDB/PostgreSQL, RabbitMQ, Redis, ClickHouse, Docker)
     artisan/            wrapper to run `php artisan ...` safely
     correlate/          links between log entries, jobs and queues
 ```
 
 ### Key interfaces
 
-- `FailedJobSource`: list / get / delete / retry (MySQL `failed_jobs`; detect available columns instead of assuming)
+- `FailedJobSource`: list / get / delete / retry (MySQL/MariaDB/PostgreSQL `failed_jobs`; detect available columns instead of assuming)
 - `PendingJobSource`: counts and listing for ready / delayed / reserved (database driver first)
 - `QueueSource`: depth, unacked, rates, peek, move (RabbitMQ Management API)
 - `HealthCheck`: name, check(), latency, status
@@ -115,7 +115,7 @@ larascope/
 ### 6.2 Jobs
 
 - **Pending (database driver):** per-queue counts for ready / delayed / reserved, attempts, available_at
-- **Failed (MySQL `failed_jobs`):** class, queue, connection, failed_at, exception, decoded payload
+- **Failed (MySQL/MariaDB/PostgreSQL `failed_jobs`):** class, queue, connection, failed_at, exception, decoded payload
 - Actions: retry one / selected / all of a class, delete one / selected / flush (all behind confirm and read-only profile checks)
 - Detect `failed_jobs` columns (`uuid`, `exception`) rather than hardcoding
 
@@ -129,7 +129,7 @@ larascope/
 
 ### 6.4 Connections
 
-- Ping: MySQL, RabbitMQ (AMQP + Management API), Redis, ClickHouse, with latency and up/down
+- Ping: MySQL/MariaDB/PostgreSQL, RabbitMQ (AMQP + Management API), Redis, ClickHouse, with latency and up/down
 - Read targets from the profile / `.env`
 - Optional: Docker containers and listening ports, MySQL running queries, ClickHouse running queries
 - Ideas to borrow: see how `app/Services/HealthcheckService.php` already checks services
@@ -167,13 +167,13 @@ larascope/
 - [ ] Tests against real sample entries
 
 ### Phase 3: Jobs tab (database source)
-- [ ] MySQL connection from `.env`
+- [ ] MySQL/MariaDB/PostgreSQL connection from `.env`
 - [ ] `jobs` pending view (ready / delayed / reserved)
 - [ ] `failed_jobs` list and detail with payload decoding and column detection
 - [ ] Retry / delete via `artisan` wrapper, with confirmation
 
 ### Phase 4: Connections tab
-- [ ] Health check interface and checks for MySQL, RabbitMQ, Redis, ClickHouse
+- [ ] Health check interface and checks for MySQL/MariaDB/PostgreSQL, RabbitMQ, Redis, ClickHouse
 - [ ] Latency display and auto-refresh
 - [ ] Optional Docker/ports panel
 

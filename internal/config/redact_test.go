@@ -10,3 +10,11 @@ func TestRedactEscapedAndDSNDefaults(t *testing.T) {
 		t.Fatalf("DSN = %q", got)
 	}
 }
+
+func TestRedactPgPasswordForms(t *testing.T) {
+	s := Settings{DBUsername: "user", DBPassword: "p@ss w/rd", DBDatabase: "app"}
+	got := Redact("raw p@ss w/rd query p%40ss+w%2Frd path p@ss%20w%2Frd dsn "+s.PgDSN(), s.Secrets()...)
+	if got != "raw *** query *** path *** dsn ***" {
+		t.Fatalf("Redact = %q", got)
+	}
+}

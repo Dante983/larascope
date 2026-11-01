@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"larascope/internal/config"
 	"net"
 	"sync"
@@ -56,16 +57,11 @@ func errString(e error) string {
 }
 func FromSettings(s config.Settings) []Check {
 	var out []Check
-	if s.DBConnection == "mysql" || s.DBConnection == "mariadb" {
-		dsn := s.DSN()
-		out = append(out, Check{"MySQL", s.DBHost + ":" + s.DBPort, func(c context.Context) error {
-			d, e := sql.Open("mysql", dsn)
-			if e != nil {
-				return e
-			}
-			defer d.Close()
-			return d.PingContext(c)
-		}})
+	switch s.Driver() {
+	case "mysql":
+		out = append(out, dbCheck("MySQL", "mysql", s.DSN(), configHost(s.DBHost, "127.0.0.1")+":"+configHost(s.DBPort, "3306")))
+	case "pgsql":
+		out = append(out, dbCheck("PostgreSQL", "pgx", s.PgDSN(), configHost(s.DBHost, "127.0.0.1")+":"+configHost(s.DBPort, "5432")))
 	}
 	redis := s.RedisHost != "" || s.QueueConnection == "redis"
 	if redis {
@@ -76,6 +72,16 @@ func FromSettings(s config.Settings) []Check {
 		out = append(out, tcp("RabbitMQ", s.RabbitHost+":"+configHost(s.RabbitPort, "5672")))
 	}
 	return out
+}
+func dbCheck(name, driver, dsn, target string) Check {
+	return Check{name, target, func(c context.Context) error {
+		d, e := sql.Open(driver, dsn)
+		if e != nil {
+			return e
+		}
+		defer d.Close()
+		return d.PingContext(c)
+	}}
 }
 func configHost(v, d string) string {
 	if v == "" {
