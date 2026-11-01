@@ -1,0 +1,5 @@
+[2026-01-15 09:06:00] local.ERROR: overflow one {"failed_job_id":9223372036854775808} []
+[2026-01-15 09:06:01] local.ERROR: overflow two {"failed_job_id":99999999999999999999999} []
+[2026-01-15 09:06:02] local.ERROR: overflow three {"job_id":18446744073709551616} []
+[2026-01-15 09:06:03] local.ERROR: overflow four {"failed_job_id":"1234567890123456789"} []
+[2026-01-15 09:06:04] local.ERROR: overflow five {"failed_job_id":1e400} []

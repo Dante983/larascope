@@ -36,6 +36,10 @@ In the failed view only, Larascope can run these commands from the project root 
 
 Use `esc` or `q` to cancel. Job identifiers are validated as numeric ids or UUIDs. Commands time out after 60 seconds, retain at most 4,000 output bytes in the status line, and reload jobs afterward.
 
+### Correlation
+
+Correlation stays local and read-only. In the Jobs **Failed** view, press `L` to show likely related log entries with a confidence and reason. In a log detail view, press `J` to jump to the best matching failed job. Matching uses log-context IDs first, then conservative exception or job-class matches; time is only a supporting signal.
+
 ### Connections (tab 3)
 
 Checks run concurrently with a three-second timeout and report latency. They auto-refresh every 10 seconds while this tab is active; `r` refreshes manually.
@@ -86,8 +90,8 @@ Demo mode uses offline sample data and can run anywhere; it needs no Laravel pro
 | --- | --- |
 | Global | `tab` / `shift+tab` next/previous tab; `1` / `2` / `3` select tab; `?` help; `q` or `ctrl+c` quit |
 | Logs | `up`/`k`, `down`/`j` move; `g`/`G` first/last in list; `pgup`/`pgdown` page; `enter` detail; `esc` back; `l` level; `/` search (`enter` apply, `esc` clear); `s` group; `f` follow; `r` reload |
-| Log detail | `up`/`down` move to previous/next entry; `enter` or `esc` back |
-| Jobs | `p` pending/failed; arrows or `j`/`k` move; `enter` detail; `esc` back; `r` reload; `R`, `d`, `A`, `F` actions above |
+| Log detail | `up`/`down` move to previous/next entry; `enter` or `esc` back; `J` matching failed job |
+| Jobs | `p` pending/failed; arrows or `j`/`k` move; `enter` detail; `esc` back; `L` related logs (Failed); `r` reload; `R`, `d`, `A`, `F` actions above |
 | Connections | arrows or `j`/`k` move; `r` refresh |
 
 ## Configuration
@@ -116,7 +120,7 @@ The Jobs tab assumes Laravel's database queue tables (`jobs` and `failed_jobs`).
 ## Safety and privacy
 
 - Larascope reads `.env`, log files, database `SELECT`s, and `information_schema` column metadata. It never writes files.
-- It never unserializes PHP payloads; it only decodes the JSON envelope to get job metadata such as the class/name.
+- It never unserializes PHP payloads; it only decodes the JSON envelope to get job metadata such as the class/name. Correlation never parses serialized payload commands and runs only on already-loaded local data.
 - The four confirmed Artisan commands are the only writes Larascope initiates.
 - Database passwords and DSNs are redacted from displayed errors, and terminal control characters in log and job text are sanitized before rendering.
 - There is no telemetry. Other than configured database, Redis, and RabbitMQ hosts, Larascope makes no network calls (demo mode makes none).
@@ -141,7 +145,7 @@ Logs and failed-job exceptions may contain sensitive data and are displayed in t
 - No SQLite, SQL Server, Unix-socket databases, `${VAR}` interpolation, config caching, or multiple connection names.
 - Only the first 100 newest jobs are loaded.
 - Log discovery ignores `LOG_CHANNEL`: it prefers `laravel.log`, then the newest `laravel-*.log`; other log files are not inspected.
-- No mouse support, export, remote profiles, SSH, job-to-log correlation, or pending-job actions.
+- No mouse support, export, remote profiles, SSH, or pending-job actions. Correlation covers only the last 5 MiB log tail and first 100 failed jobs; timestamps are naive wall-clock values, so app and database timezone differences can reduce time support.
 - Redis and RabbitMQ are TCP reachability checks only, not queue inspection.
 - Windows is untested.
 

@@ -45,6 +45,8 @@ type Model struct {
 	conns           connsState
 	demo            bool
 	notice          string
+	corr            correlationState
+	logNote         string
 }
 
 const maxLogLines = 20
@@ -76,6 +78,7 @@ func (m Model) WithLogs(entries []logs.Entry, err error) Model {
 	m.recompute()
 	m.cursor = max(0, len(entries)-1)
 	m.detail = false
+	m.corr = correlationState{}
 	return m
 }
 
@@ -163,8 +166,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, loadJobsCmd(m.settings)
 	case tea.KeyMsg:
-		if msg.String() != "r" && msg.String() != "f" {
+		if msg.String() != "r" && msg.String() != "f" && msg.String() != "J" {
 			m.notice = ""
+			m.logNote = ""
 		}
 		if m.jobs.confirm != nil {
 			a := m.jobs.confirm
@@ -208,9 +212,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.active == TabLogs && m.searching {
 			return m.handleSearch(msg)
 		}
+		if m.active == TabLogs && m.corr.active && !m.showHelp {
+			if nm, cmd, handled := m.handleCorrKey(msg); handled {
+				return nm, cmd
+			}
+		}
 		if m.active == TabJobs && !m.showHelp {
 			switch msg.String() {
-			case "p", "R", "A", "d", "F", "up", "k", "down", "j", "enter", "esc":
+			case "p", "R", "A", "d", "F", "L", "up", "k", "down", "j", "enter", "esc":
 				m, cmd := m.handleJobsKey(msg.String())
 				return m, cmd
 			}
@@ -276,6 +285,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return followTickMsg{} })
 				}
 			}
+		case "J":
+			if m.active == TabLogs && m.detail && !m.showHelp {
+				m = m.jumpToJobFromLog()
+			}
 		case "enter":
 			if m.active == TabLogs && !m.showHelp && len(m.entries) > 0 {
 				m.detail = !m.detail
@@ -319,6 +332,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) reloadLogs(msg logsLoadedMsg) Model {
+	m.corr = correlationState{}
 	if msg.err != nil {
 		m.logErr = msg.err
 		m.logLoaded = true
@@ -328,6 +342,7 @@ func (m Model) reloadLogs(msg logsLoadedMsg) Model {
 	oldEntriesEmpty := len(m.entries) == 0
 	wasLast := m.cursor >= len(m.entries)-1
 	m.entries = msg.entries
+	m.corr = correlationState{}
 	m.recompute()
 	m.logErr = nil
 	m.logLoaded = true
@@ -429,8 +444,10 @@ func (m Model) footer() string {
 	if m.active == TabLogs {
 		if m.searching {
 			hints = "type query, enter apply, esc clear"
+		} else if h := m.correlationHints(); h != "" {
+			hints = h
 		} else if m.detail {
-			hints = "up/down: previous/next entry  enter/esc: back  ?: help"
+			hints = "up/down: previous/next entry  enter/esc: back  J: failed job  ?: help"
 		} else if m.demo {
 			hints = "up/down: move  enter: detail  /: search  l: level  s: group  ?: help"
 		} else {
@@ -438,7 +455,11 @@ func (m Model) footer() string {
 		}
 	}
 	if m.active == TabJobs {
-		hints = "p: pending/failed  j/k: move  enter: detail  R retry  d forget  A retry all  F flush"
+		hints = "p: pending/failed  j/k: move  enter: detail"
+		if h := m.correlationHints(); h != "" {
+			hints += "  " + h
+		}
+		hints += "  R retry  d forget  A retry all  F flush"
 	}
 	if m.active == TabConnections {
 		if m.demo {
@@ -493,7 +514,7 @@ func (m Model) body() string {
 		} else {
 			help += "r: reload log file\nl: level filter  /: search  s: group  f: follow\n"
 		}
-		help += "\nJobs\np: pending/failed  j/k: move  enter: detail  R/d: retry/forget selected  A: retry all (type to confirm)  F: flush (type to confirm)\n\nConnections\nup/down: move"
+		help += "J  (Logs detail/related list) jump to matching failed job\nesc leaves related-log mode\n\nJobs\np: pending/failed  j/k: move  enter: detail  R/d: retry/forget selected  A: retry all (type to confirm)  F: flush (type to confirm)\nL  (Jobs, failed) show related log entries\n\nConnections\nup/down: move"
 		if !m.demo {
 			help += "  r: refresh"
 		}
@@ -526,6 +547,9 @@ func (m Model) logsBody() string {
 	if m.detail {
 		return m.detailBody()
 	}
+	if m.corr.active {
+		return m.correlationBody()
+	}
 	if m.grouped {
 		return m.groupedLogsBody()
 	}
@@ -545,7 +569,11 @@ func levelCounts(entries []logs.Entry, idx []int) map[string]int {
 }
 
 func (m Model) detailBody() string {
-	entry := m.entries[m.cursor]
+	idx := m.shownEntryIndex()
+	if idx < 0 || idx >= len(m.entries) {
+		return ""
+	}
+	entry := m.entries[idx]
 	w := m.clipWidth()
 	message := strings.Split(wrap(sanitize(entry.Message), w), "\n")
 	messageCap := max(3, m.bodyHeight()/3)
@@ -555,7 +583,15 @@ func (m Model) detailBody() string {
 	if len(message) > messageCap {
 		message = append(message[:messageCap], fmt.Sprintf("… %d more lines", len(message)-messageCap))
 	}
-	body := levelStyle(entry.Level).Render(sanitizeLine(entry.Level)) + " " + entry.Time.Format("2006-01-02 15:04:05") + " " + sanitizeLine(entry.Env) + fmt.Sprintf("  entry %d/%d", m.cursor+1, len(m.entries)) + "\n\n" + strings.Join(message, "\n")
+	body := levelStyle(entry.Level).Render(sanitizeLine(entry.Level)) + " " + entry.Time.Format("2006-01-02 15:04:05") + " " + sanitizeLine(entry.Env) + fmt.Sprintf("  entry %d/%d", idx+1, len(m.entries)) + "\n\n" + strings.Join(message, "\n")
+	if m.jobs.loaded && len(m.jobs.failed) > 0 {
+		if line := m.relatedJobLine(entry); line != "" {
+			body += "\n" + lipgloss.NewStyle().Foreground(colMuted).Render(line)
+		}
+	}
+	if m.logNote != "" {
+		body += "\n" + lipgloss.NewStyle().Foreground(colMuted).Render(sanitizeLine(m.logNote))
+	}
 	if len(entry.Trace) > 0 {
 		trace := make([]string, 0, len(entry.Trace))
 		for _, line := range entry.Trace {

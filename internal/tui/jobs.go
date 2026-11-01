@@ -191,7 +191,16 @@ func (m Model) pendingDetail() string {
 }
 func (m Model) failedDetail() string {
 	j := m.jobs.failed[m.jobs.failedCursor]
-	return fmt.Sprintf("id: %d\nqueue: %s\nuuid: %s\nconnection: %s\nclass: %s\nfailed_at: %s\nexception:\n%s", j.ID, sanitizeLine(j.Queue), sanitizeLine(j.UUID), sanitizeLine(j.Connection), sanitizeLine(j.Class), j.FailedAt, firstLines(sanitize(j.Exception), 20))
+	detail := fmt.Sprintf("id: %d\nqueue: %s\nuuid: %s\nconnection: %s\nclass: %s\nfailed_at: %s\nexception:\n%s", j.ID, sanitizeLine(j.Queue), sanitizeLine(j.UUID), sanitizeLine(j.Connection), sanitizeLine(j.Class), j.FailedAt, firstLines(sanitize(j.Exception), 20))
+	if len(m.entries) > 0 {
+		lines := m.relatedLogLines(j)
+		if len(lines) == 0 {
+			detail += "\nrelated logs: none found"
+		} else {
+			detail += "\nrelated logs:\n" + strings.Join(lines, "\n")
+		}
+	}
+	return detail
 }
 func (m Model) addJobDetail(lines []string, detail string) []string {
 	unlimited := m.width == 0
@@ -261,6 +270,12 @@ func (m Model) handleJobsKey(k string) (Model, tea.Cmd) {
 	length, cursor := len(m.jobs.pending), &m.jobs.pendingCursor
 	if m.jobs.view == "failed" {
 		length, cursor = len(m.jobs.failed), &m.jobs.failedCursor
+	}
+	if k == "L" {
+		if m.jobs.view == "failed" && len(m.jobs.failed) > 0 {
+			return m.enterCorrelation(m.jobs.failed[m.jobs.failedCursor]), nil
+		}
+		return m, nil
 	}
 	switch k {
 	case "up", "k":

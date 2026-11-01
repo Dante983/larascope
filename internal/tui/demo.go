@@ -69,6 +69,13 @@ func demoLogs() []logs.Entry {
 		logs.Entry{Header: logs.Header{Time: base.Add(99 * time.Minute), Env: "local", Level: "INFO", Message: "Imported customers 東京 from regional archive"}, Trace: []string{"#0 /app/Imports/CustomerImport.php(64): App\\Imports\\CustomerImport->run()"}},
 		logs.Entry{Header: logs.Header{Time: base.Add(100 * time.Minute), Env: "staging", Level: "INFO", Message: "Webhook response body follows\nstatus=202\nqueued for later delivery"}, Trace: []string{"#0 /app/Http/WebhookController.php(112): App\\Http\\WebhookController->store()"}},
 	)
+	// Correlation fixtures: one UUID match, one exception match, and one time-only decoy.
+	out = append(out,
+		logs.Entry{Header: logs.Header{Time: base.Add(-5 * time.Second), Env: "local", Level: "ERROR", Message: `Job failed {"job":"App\\Jobs\\SendInvoiceEmail","uuid":"e5d00000-0000-4000-8000-000000000001","failed_job_id":100} []`}},
+		logs.Entry{Header: logs.Header{Time: time.Date(2026, 1, 14, 7, 59, 40, 0, time.UTC), Env: "local", Level: "ERROR", Message: "Illuminate\\Database\\QueryException: Deadlock found when trying to get lock (Connection: mysql) in /app/Jobs/Worker.php:81"}},
+		logs.Entry{Header: logs.Header{Time: time.Date(2026, 1, 13, 6, 59, 30, 0, time.UTC), Env: "local", Level: "WARNING", Message: "Worker retry scheduled"}},
+	)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Time.Before(out[j].Time) })
 	return out
 }
 

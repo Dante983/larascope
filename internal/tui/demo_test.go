@@ -251,7 +251,7 @@ func TestDemoFixturesHaveNoSecrets(t *testing.T) {
 		}
 	}
 	groups := logs.GroupEntries(demoLogs())
-	if len(groups) != 11 || groups[0].Count != 10 {
+	if len(groups) != 14 || groups[0].Count != 10 {
 		t.Fatalf("groups = %d, top = %d", len(groups), groups[0].Count)
 	}
 	total := 0
