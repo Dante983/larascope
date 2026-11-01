@@ -2,17 +2,17 @@ package tui
 
 import (
 	"fmt"
-	"larascope/internal/config"
-	"larascope/internal/conns"
-	"larascope/internal/jobs"
+	"github.com/Dante983/larascope/internal/config"
+	"github.com/Dante983/larascope/internal/conns"
+	"github.com/Dante983/larascope/internal/jobs"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Dante983/larascope/internal/logs"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
-	"larascope/internal/logs"
 )
 
 func TestViewResponsiveLogsAndSearch(t *testing.T) {

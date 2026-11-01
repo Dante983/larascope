@@ -3,12 +3,13 @@ package tui
 import (
 	"context"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"larascope/internal/config"
-	"larascope/internal/conns"
 	"strings"
 	"time"
+
+	"github.com/Dante983/larascope/internal/config"
+	"github.com/Dante983/larascope/internal/conns"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type connsState struct {

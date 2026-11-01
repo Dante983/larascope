@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dante983/larascope/internal/config"
+	"github.com/Dante983/larascope/internal/logs"
 	tea "github.com/charmbracelet/bubbletea"
-	"larascope/internal/config"
-	"larascope/internal/logs"
 )
 
 func updateWithKey(t *testing.T, m Model, msg tea.KeyMsg) (Model, tea.Cmd) {

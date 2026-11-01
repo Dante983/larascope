@@ -2,11 +2,12 @@ package correlate
 
 import (
 	"fmt"
-	"larascope/internal/jobs"
-	"larascope/internal/logs"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Dante983/larascope/internal/jobs"
+	"github.com/Dante983/larascope/internal/logs"
 )
 
 type Confidence int

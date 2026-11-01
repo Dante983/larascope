@@ -2,12 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"strings"
+
+	"github.com/Dante983/larascope/internal/correlate"
+	"github.com/Dante983/larascope/internal/jobs"
+	"github.com/Dante983/larascope/internal/logs"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"larascope/internal/correlate"
-	"larascope/internal/jobs"
-	"larascope/internal/logs"
-	"strings"
 )
 
 type correlationState struct {

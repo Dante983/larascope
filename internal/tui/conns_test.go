@@ -2,9 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"github.com/Dante983/larascope/internal/config"
+	"github.com/Dante983/larascope/internal/conns"
 	tea "github.com/charmbracelet/bubbletea"
-	"larascope/internal/config"
-	"larascope/internal/conns"
 	"strings"
 	"testing"
 	"time"

@@ -2,8 +2,8 @@ package correlate
 
 import (
 	"encoding/json"
-	"larascope/internal/jobs"
-	"larascope/internal/logs"
+	"github.com/Dante983/larascope/internal/jobs"
+	"github.com/Dante983/larascope/internal/logs"
 	"math"
 	"strings"
 	"testing"

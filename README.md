@@ -50,7 +50,7 @@ Checks run concurrently with a three-second timeout and report latency. They aut
 
 Redis and RabbitMQ checks verify only that the TCP port accepts connections.
 
-## Install, build, and run
+## Install
 
 Requirements:
 
@@ -58,11 +58,57 @@ Requirements:
 - PHP on `PATH` for live Jobs actions
 - A terminal, since Larascope uses a full-screen alternate-screen TUI
 
+### Install a prebuilt release
+
+Prebuilt releases support Linux and macOS on amd64 and arm64, and Windows on amd64. These commands work after the first release exists. The installers verify release checksums, install without `sudo`, and print a PATH hint. Their default directories are `~/.local/bin` on Unix and `%LOCALAPPDATA%\Programs\larascope\bin` on Windows.
+
+Unix (latest release):
+
 ```sh
-git clone <repo-url>
+curl -fsSL https://raw.githubusercontent.com/Dante983/larascope/main/scripts/install.sh | sh
+```
+
+To install a specific release, put the environment variable on the `sh` side of the pipe:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Dante983/larascope/main/scripts/install.sh | LARASCOPE_VERSION=v0.1.0 sh
+```
+
+Windows PowerShell (latest release):
+
+```powershell
+irm https://raw.githubusercontent.com/Dante983/larascope/main/scripts/install.ps1 | iex
+```
+
+For a specific Windows release:
+
+```powershell
+$env:LARASCOPE_VERSION='v0.1.0'
+irm https://raw.githubusercontent.com/Dante983/larascope/main/scripts/install.ps1 | iex
+```
+
+You can instead download the archive and `checksums.txt` manually, inspect the installer before running it, and verify the checksum yourself. On GNU/Linux:
+
+```sh
+sha256sum -c --ignore-missing checksums.txt
+```
+
+On macOS, use `shasum -a 256 -c checksums.txt`. macOS binaries are unsigned and not notarized, so Gatekeeper may warn about browser downloads; installations with `curl` usually avoid the quarantine attribute.
+
+### Install with Go
+
+Once the module path has been pushed, Go 1.27+ users can install the latest module release:
+
+```sh
+go install github.com/Dante983/larascope/cmd/larascope@latest
+```
+
+### Build from source
+
+```sh
+git clone https://github.com/Dante983/larascope.git
 cd larascope
 go build -o larascope ./cmd/larascope
-# Or: go install ./cmd/larascope
 ```
 
 Run it from a Laravel project (or any subdirectory):
@@ -76,13 +122,14 @@ Larascope walks upward from the current directory to the first directory with a 
 
 ## CLI
 
-The only application flag is `-demo` (`--demo` also works):
+Application flags include `-demo` (`--demo` also works) and `--version` (`-version` also works):
 
 ```sh
 go run ./cmd/larascope -demo
+go run ./cmd/larascope --version
 ```
 
-Demo mode uses offline sample data and can run anywhere; it needs no Laravel project, database, Artisan executable, or network access. Reload, follow, and connection refresh are disabled. Job actions report `demo: no action performed`. `-h` prints Go's default usage; there is no version flag.
+Demo mode uses offline sample data and can run anywhere; it needs no Laravel project, database, Artisan executable, or network access. Reload, follow, and connection refresh are disabled. Job actions report `demo: no action performed`. `-h` prints Go's default usage.
 
 ## Keyboard controls
 
@@ -147,11 +194,11 @@ Logs and failed-job exceptions may contain sensitive data and are displayed in t
 - Log discovery ignores `LOG_CHANNEL`: it prefers `laravel.log`, then the newest `laravel-*.log`; other log files are not inspected.
 - No mouse support, export, remote profiles, SSH, or pending-job actions. Correlation covers only the last 5 MiB log tail and first 100 failed jobs; timestamps are naive wall-clock values, so app and database timezone differences can reduce time support.
 - Redis and RabbitMQ are TCP reachability checks only, not queue inspection.
-- Windows is untested.
+- Windows binaries are built but untested; Artisan actions via `LARASCOPE_PHP` are unverified.
 
 ## Development and testing
 
-Layout: `cmd/larascope` (main and flags), `internal/config` (.env, root discovery, redaction), `internal/logs`, `internal/jobs`, `internal/artisan`, `internal/conns`, and `internal/tui` (Bubble Tea model, tables, demo, styles).
+Layout: `cmd/larascope` (main and flags), `internal/config` (.env, root discovery, redaction), `internal/logs`, `internal/jobs`, `internal/artisan`, `internal/conns`, `internal/tui` (Bubble Tea model, tables, demo, styles), `scripts/` (release installers), and `.goreleaser.yaml` (release configuration).
 
 ```sh
 go build ./...
@@ -162,3 +209,18 @@ go run ./cmd/larascope -demo
 ```
 
 The stack uses Bubble Tea, Lip Gloss, `go-sql-driver/mysql`, and pgx. Tests do not require a database or PHP.
+
+## Releasing
+
+Maintainers should ensure CI is green, then create and push a SemVer tag such as `v0.1.0`:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Tags must match `vMAJOR.MINOR.PATCH`. The release workflow tests the tag and publishes the GitHub Release. To dry-run the release locally without publishing, run:
+
+```sh
+goreleaser release --snapshot --clean --skip=publish
+```

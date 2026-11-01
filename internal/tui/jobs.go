@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"larascope/internal/artisan"
-	"larascope/internal/config"
-	"larascope/internal/jobs"
 	"strings"
 	"time"
+
+	"github.com/Dante983/larascope/internal/artisan"
+	"github.com/Dante983/larascope/internal/config"
+	"github.com/Dante983/larascope/internal/jobs"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type confirmAction struct {

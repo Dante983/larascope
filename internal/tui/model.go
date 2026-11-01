@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dante983/larascope/internal/config"
+	"github.com/Dante983/larascope/internal/logs"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"larascope/internal/config"
-	"larascope/internal/logs"
 )
 
 type Tab int

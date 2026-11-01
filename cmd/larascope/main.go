@@ -5,14 +5,20 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Dante983/larascope/internal/config"
+	"github.com/Dante983/larascope/internal/tui"
+	"github.com/Dante983/larascope/internal/version"
 	tea "github.com/charmbracelet/bubbletea"
-	"larascope/internal/config"
-	"larascope/internal/tui"
 )
 
 func main() {
 	demo := flag.Bool("demo", false, "offline demo with sample data (no database, no Artisan, no network)")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(version.String())
+		return
+	}
 	if *demo {
 		run(tui.NewDemo())
 		return

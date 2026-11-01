@@ -3,7 +3,7 @@ package conns
 import (
 	"context"
 	"errors"
-	"larascope/internal/config"
+	"github.com/Dante983/larascope/internal/config"
 	"net"
 	"strings"
 	"testing"

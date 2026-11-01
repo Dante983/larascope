@@ -1,4 +1,4 @@
-module larascope
+module github.com/Dante983/larascope
 
 go 1.27.1
 

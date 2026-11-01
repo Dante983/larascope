@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"larascope/internal/conns"
-	"larascope/internal/jobs"
-	"larascope/internal/logs"
+	"github.com/Dante983/larascope/internal/conns"
+	"github.com/Dante983/larascope/internal/jobs"
+	"github.com/Dante983/larascope/internal/logs"
 )
 
 func NewDemo() Model {

@@ -2,9 +2,9 @@ package tui
 
 import (
 	"errors"
+	"github.com/Dante983/larascope/internal/config"
+	"github.com/Dante983/larascope/internal/jobs"
 	tea "github.com/charmbracelet/bubbletea"
-	"larascope/internal/config"
-	"larascope/internal/jobs"
 	"os"
 	"path/filepath"
 	"strings"

@@ -1,0 +1,35 @@
+version: 2
+project_name: larascope
+before:
+  hooks:
+    - go mod verify
+builds:
+  - id: larascope
+    main: ./cmd/larascope
+    binary: larascope
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - {goos: windows, goarch: arm64}
+    ldflags:
+      - -s -w
+      - -X github.com/Dante983/larascope/internal/version.Version={{.Version}}
+      - -X github.com/Dante983/larascope/internal/version.Commit={{.Commit}}
+      - -X github.com/Dante983/larascope/internal/version.Date={{.Date}}
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - {goos: windows, formats: [zip]}
+    name_template: "larascope_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [README.md, LICENSE*]
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+changelog:
+  sort: asc
+release:
+  draft: false
+  prerelease: auto
