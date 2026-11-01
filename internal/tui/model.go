@@ -14,6 +14,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"larascope/internal/config"
 	"larascope/internal/logs"
 )
@@ -62,13 +63,6 @@ func loadLogsCmd(root string) tea.Cmd {
 	}
 }
 
-var (
-	activeTabStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
-	inactiveTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	footerStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	selectedStyle    = lipgloss.NewStyle().Reverse(true)
-)
-
 func New() Model {
 	return Model{active: TabLogs, jobs: jobsState{view: "pending"}}
 }
@@ -114,7 +108,7 @@ func (m Model) statusLine() string {
 		parts = append(parts, "db: "+db)
 	}
 
-	return strings.Join(parts, "  ")
+	return sanitize(strings.Join(parts, "  "))
 }
 
 func (m Model) Init() tea.Cmd {
@@ -189,7 +183,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if msg.Type == tea.KeySpace && len(msg.Runes) == 0 {
 						a.typed += " "
 					} else {
-						a.typed += string(msg.Runes)
+						a.typed += sanitize(string(msg.Runes))
 					}
 				}
 			}
@@ -280,11 +274,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "pgup":
 			if m.active == TabLogs && !m.showHelp && !m.detail {
-				m = m.moveCursor(-maxLogLines)
+				m = m.moveCursor(-m.listHeight())
 			}
 		case "pgdown":
 			if m.active == TabLogs && !m.showHelp && !m.detail {
-				m = m.moveCursor(maxLogLines)
+				m = m.moveCursor(m.listHeight())
 			}
 		}
 	}
@@ -370,42 +364,85 @@ func (m *Model) tabLoadCmd() tea.Cmd {
 }
 
 func (m Model) View() string {
-	tabs := make([]string, len(tabNames))
-	for i, name := range tabNames {
-		if Tab(i) == m.active {
-			tabs[i] = activeTabStyle.Render(name)
-		} else {
-			tabs[i] = inactiveTabStyle.Render(name)
-		}
+	if m.width > 0 && (m.width < 40 || m.height < 10) {
+		return "Terminal too small (need 40x10)\nq: quit"
 	}
-
+	bar := strings.Split(tabBar(m.active, m.contentWidth()), "\n")
+	top := lipgloss.NewStyle().Foreground(colAccent).Bold(true).Render("larascope") + "  " + bar[0]
+	if m.width >= 80 && m.settings.Root != "" {
+		top += "  " + filepath.Base(m.settings.Root)
+	}
+	header := truncate(top, m.clipWidth()) + "\n" + bar[1]
 	body := m.body()
+	if m.height > 0 {
+		body = clipBody(body, m.bodyHeight())
+	}
+	body = clipLines(body, m.clipWidth())
 	if m.width > 0 && m.centered() {
 		body = lipgloss.PlaceHorizontal(m.width, lipgloss.Center, body)
 	}
-
-	footer := footerStyle.Render("tab: switch  ?: help  q: quit")
-	if m.jobs.confirm != nil {
-		if m.jobs.confirm.need == "" {
-			footer = footerStyle.Render("Confirm: " + m.jobs.confirm.desc + "  y=yes, any other key=cancel")
+	footer := m.footer()
+	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
+}
+func (m Model) footer() string {
+	cw := m.clipWidth()
+	hints := "tab: switch  ?: help  q: quit"
+	if m.active == TabLogs {
+		if m.searching {
+			hints = "type query, enter apply, esc clear"
+		} else if m.detail {
+			hints = "up/down: previous/next entry  enter/esc: back  ?: help"
 		} else {
-			footer = footerStyle.Render("Confirm: " + m.jobs.confirm.desc + " — type " + m.jobs.confirm.need + " then enter, esc cancel")
+			hints = "up/down: move  enter: detail  /: search  l: level  s: group  f: follow"
 		}
 	}
-	if status := m.statusLine(); status != "" {
-		footer = footerStyle.Render(status) + "\n" + footer
+	if m.active == TabJobs {
+		hints = "p: pending/failed  j/k: move  enter: detail  R retry  d forget  A retry all  F flush"
 	}
-
-	return fmt.Sprintf("%s\n\n%s\n\n%s", lipgloss.JoinHorizontal(lipgloss.Top, tabs...), body, footer)
+	if m.active == TabConnections {
+		hints = "r: refresh  ?: help  q: quit"
+	}
+	if m.jobs.confirm != nil {
+		if m.jobs.confirm.need == "" {
+			suffix := "  y=yes, any other key=cancel"
+			desc := "Confirm: " + sanitizeLine(m.jobs.confirm.desc)
+			if cw > 0 {
+				desc = truncate(desc, max(1, cw-lipgloss.Width(suffix)))
+			}
+			hints = desc + suffix
+		} else {
+			prefix := "Confirm: " + sanitizeLine(m.jobs.confirm.desc) + " — type " + m.jobs.confirm.need + " then enter, esc cancel"
+			tail := " > " + sanitizeLine(m.jobs.confirm.typed)
+			if cw > 0 {
+				if lipgloss.Width(tail) >= cw {
+					hints = ansi.TruncateLeft(tail, lipgloss.Width(tail)-cw+1, "…")
+				} else {
+					hints = truncateStrict(prefix, cw-lipgloss.Width(tail)) + tail
+				}
+			} else {
+				hints = prefix + tail
+			}
+		}
+		hints = lipgloss.NewStyle().Foreground(colWarn).Bold(true).Render(hints)
+	} else {
+		hints = truncate(hints, cw)
+	}
+	return lipgloss.NewStyle().Foreground(colMuted).Render(truncate(sanitizeLine(m.statusLine()), cw)) + "\n" + hints
 }
 
 func (m Model) centered() bool {
-	return !(m.active == TabLogs && m.logLoaded && m.logErr == nil && len(m.entries) > 0)
+	if m.showHelp {
+		return false
+	}
+	if m.active == TabLogs {
+		return !m.logLoaded || m.logErr != nil || len(m.entries) == 0
+	}
+	return (m.active == TabJobs && m.settings.Root == "") || (m.active == TabConnections && (m.conns.loading && len(m.conns.results) == 0 || len(m.conns.results) == 0))
 }
 
 func (m Model) body() string {
 	if m.showHelp {
-		return "tab: next tab\nshift+tab: previous tab\n1/2/3: select tab\nup/k, down/j: move in logs (prev/next entry in detail)\ng/G: first/last entry\npgup/pgdown: page up/down\nenter: toggle entry detail\nesc: back to list\nr: reload log file\nl: level filter  /: search  s: group  f: follow\np: pending/failed  j/k: move  enter: detail  R/d: retry/forget selected  A: retry all (type to confirm)  F: flush (type to confirm)\n?: toggle help\nq: quit"
+		return lipgloss.NewStyle().Width(max(1, m.contentWidth()-4)).Border(lipgloss.RoundedBorder()).BorderForeground(colMuted).Padding(0, 1).Render("Global\n" + keyHint("tab", "next tab") + "\n" + keyHint("1/2/3", "select tab") + "\n" + keyHint("?", "toggle help") + "\n" + keyHint("q", "quit") + "\n\nLogs\nup/k, down/j: move in logs\ng/G: first/last entry\npgup/pgdown: page up/down\nenter: toggle entry detail\nesc: back to list\nr: reload log file\nl: level filter  /: search  s: group  f: follow\n\nJobs\np: pending/failed  j/k: move  enter: detail  R/d: retry/forget selected  A: retry all (type to confirm)  F: flush (type to confirm)\n\nConnections\nr: refresh")
 	}
 
 	switch m.active {
@@ -426,7 +463,7 @@ func (m Model) logsBody() string {
 		return "No log file found (storage/logs/laravel.log)"
 	}
 	if m.logErr != nil {
-		return "Log error: " + m.logErr.Error()
+		return "Log error: " + sanitizeLine(config.Redact(m.logErr.Error(), m.settings.DBPassword, m.settings.DSN()))
 	}
 	if len(m.entries) == 0 {
 		return "Log file has no entries"
@@ -441,34 +478,81 @@ func (m Model) logsBody() string {
 		return m.filteredLogsBody()
 	}
 
-	start := max(0, len(m.entries)-maxLogLines)
-	if m.cursor < start {
-		start = m.cursor
+	all := make([]int, len(m.entries))
+	for i := range m.entries {
+		all[i] = i
 	}
-	end := min(len(m.entries), start+maxLogLines)
+	start, end := window(all, m.cursor, m.listHeight())
 	lines := make([]string, 0, end-start)
-	for i, entry := range m.entries[start:end] {
-		line := entry.Time.Format("2006-01-02 15:04:05") + " " + entry.Level + " " + entry.Message
-		if m.width > 0 {
-			runes := []rune(line)
-			if len(runes) > m.width {
-				line = string(runes[:m.width])
-			}
-		}
-		if start+i == m.cursor {
-			line = selectedStyle.Render(line)
-		}
-		lines = append(lines, line)
+	for _, i := range all[start:end] {
+		lines = append(lines, m.renderLogRow(m.entries[i], i == m.cursor, m.clipWidth()))
 	}
+	counts := levelCounts(m.entries, all)
+	summary := ""
+	if m.width >= 80 {
+		summary = fmt.Sprintf("  ERROR %d  WARNING %d  INFO %d  DEBUG %d", counts["ERROR"], counts["WARNING"], counts["INFO"], counts["DEBUG"])
+	}
+	prompt := ""
+	if m.searching {
+		prompt = "/ " + sanitizeLine(m.searchInput) + "▏\n"
+	}
+	return fmt.Sprintf("%d entries  (%d/%d)%s\n%s%s", len(m.entries), m.cursor+1, len(m.entries), summary, prompt, strings.Join(lines, "\n"))
+}
 
-	return fmt.Sprintf("%d entries  (%d/%d)\n\n%s", len(m.entries), m.cursor+1, len(m.entries), strings.Join(lines, "\n"))
+func levelCounts(entries []logs.Entry, idx []int) map[string]int {
+	out := map[string]int{}
+	for _, i := range idx {
+		out[strings.ToUpper(entries[i].Level)]++
+	}
+	return out
+}
+func (m Model) renderLogRow(e logs.Entry, sel bool, w int) string {
+	msg := sanitizeLine(strings.SplitN(e.Message, "\n", 2)[0])
+	prefix := "  "
+	if sel {
+		prefix = "▸ "
+	}
+	level := sanitizeLine(e.Level)
+	head := e.Time.Format("2006-01-02 15:04:05") + " " + padRight(level, 8) + " "
+	if w > 0 {
+		msg = truncateStrict(msg, w-lipgloss.Width(prefix+head))
+	}
+	if m.logFilter.Query != "" && !sel {
+		msg = highlight(msg, sanitizeLine(m.logFilter.Query))
+	}
+	line := prefix + e.Time.Format("2006-01-02 15:04:05") + " " + levelStyle(level).Render(padRight(level, 8)) + " " + msg
+	if sel {
+		return selectedStyle.Render(line)
+	}
+	return line
 }
 
 func (m Model) detailBody() string {
 	entry := m.entries[m.cursor]
-	body := entry.Time.Format("2006-01-02 15:04:05") + " " + entry.Level + " " + entry.Env + "\n\n" + entry.Message
+	w := m.clipWidth()
+	message := strings.Split(wrap(sanitize(entry.Message), w), "\n")
+	messageCap := max(3, m.bodyHeight()/3)
+	if m.height == 0 {
+		messageCap = len(message)
+	}
+	if len(message) > messageCap {
+		message = append(message[:messageCap], fmt.Sprintf("… %d more lines", len(message)-messageCap))
+	}
+	body := badge(sanitizeLine(entry.Level), colInfo) + " " + entry.Time.Format("2006-01-02 15:04:05") + " " + sanitizeLine(entry.Env) + fmt.Sprintf("  entry %d/%d", m.cursor+1, len(m.entries)) + "\n\n" + strings.Join(message, "\n")
 	if len(entry.Trace) > 0 {
-		body += "\n\n" + strings.Join(entry.Trace, "\n")
+		trace := make([]string, 0, len(entry.Trace))
+		for _, line := range entry.Trace {
+			trace = append(trace, strings.Split(wrap(sanitizeLine(line), w), "\n")...)
+		}
+		available := max(0, m.bodyHeight()-(2+len(message)+2))
+		if m.height == 0 {
+			available = max(0, m.listHeight()-6)
+		}
+		n := min(len(trace), available)
+		body += "\n\n" + lipgloss.NewStyle().Foreground(colMuted).Render(strings.Join(trace[:n], "\n"))
+		if n < len(trace) {
+			body += fmt.Sprintf("\n… %d more lines", len(trace)-n)
+		}
 	}
 	return body
 }
@@ -526,25 +610,25 @@ func (m Model) handleSearch(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	default:
 		if k.Type == tea.KeyRunes {
-			m.searchInput += string(k.Runes)
+			m.searchInput += sanitize(string(k.Runes))
 		}
 	}
 	return m, nil
 }
 func (m Model) filteredLogsBody() string {
 	if len(m.visible) == 0 {
-		return "0 entries"
+		return "0 entries\nesc in search clears filter / l cycles level"
 	}
+	start, end := window(m.visible, m.cursor, m.listHeight())
 	lines := []string{}
-	for _, i := range m.visible {
-		e := m.entries[i]
-		line := e.Time.Format("2006-01-02 15:04:05") + " " + e.Level + " " + e.Message
-		if i == m.cursor {
-			line = selectedStyle.Render(line)
-		}
-		lines = append(lines, line)
+	for _, i := range m.visible[start:end] {
+		lines = append(lines, m.renderLogRow(m.entries[i], i == m.cursor, m.clipWidth()))
 	}
-	return fmt.Sprintf("%d entries  level=%s search=%q\n\n%s", len(m.visible), m.logFilter.Level, m.logFilter.Query, strings.Join(lines, "\n"))
+	prompt := ""
+	if m.searching {
+		prompt = "/ " + sanitizeLine(m.searchInput) + "▏\n"
+	}
+	return fmt.Sprintf("%d entries  level=%s search=%q\n%s%s", len(m.visible), m.logFilter.Level, sanitizeLine(m.logFilter.Query), prompt, strings.Join(lines, "\n"))
 }
 func (m Model) groupedLogsBody() string {
 	gs := logs.GroupEntries(func() []logs.Entry {
@@ -554,11 +638,17 @@ func (m Model) groupedLogsBody() string {
 		}
 		return r
 	}())
-	lines := make([]string, len(gs))
-	for i, g := range gs {
-		lines[i] = fmt.Sprintf("%5dx %s %s", g.Count, g.Sample.Level, g.Sample.Message)
+	all := make([]int, len(gs))
+	for i := range gs {
+		all[i] = i
 	}
-	return strings.Join(lines, "\n")
+	start, end := window(all, 0, m.listHeight())
+	lines := make([]string, 0, end-start)
+	for _, i := range all[start:end] {
+		g := gs[i]
+		lines = append(lines, truncate(fmt.Sprintf("%5dx %s %s", g.Count, sanitizeLine(g.Sample.Level), sanitizeLine(g.Sample.Message)), m.clipWidth()))
+	}
+	return fmt.Sprintf("Grouped (%d unique)\n%s", len(gs), strings.Join(lines, "\n"))
 }
 func errText(e error) string {
 	if e == nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"larascope/internal/artisan"
 	"larascope/internal/config"
 	"larascope/internal/jobs"
@@ -75,47 +76,216 @@ func (m Model) jobsBody() string {
 		return "No jobs detected yet"
 	}
 	if m.jobs.err != nil {
-		return config.Redact(m.jobs.err.Error(), m.settings.DBPassword, m.settings.DSN())
+		body := wrap(sanitizeLine(config.Redact(m.jobs.err.Error(), m.settings.DBPassword, m.settings.DSN())), m.clipWidth())
+		driver := strings.ToLower(strings.TrimSpace(m.settings.DBConnection))
+		if driver != "" && driver != "mysql" && driver != "mariadb" {
+			body += "\nJobs supports MySQL/MariaDB only"
+		}
+		return body
+	}
+	if m.jobs.detail && m.detailCompact() {
+		lines := []string{"Jobs [" + m.jobs.view + "] detail (enter/esc: back)"}
+		if m.jobs.view == "pending" && len(m.jobs.pending) > 0 {
+			lines = append(lines, m.addJobDetail(nil, m.pendingDetail())...)
+		} else if m.jobs.view == "failed" && len(m.jobs.failed) > 0 {
+			lines = append(lines, m.addJobDetail(nil, m.failedDetail())...)
+		}
+		if m.jobs.status != "" {
+			lines = append(lines, "", sanitizeLine(m.jobs.status))
+		}
+		return strings.Join(lines, "\n")
 	}
 	lines := []string{"Jobs [" + m.jobs.view + "] (p to switch)"}
-	for _, c := range m.jobs.counts {
-		lines = append(lines, fmt.Sprintf("%s ready=%d delayed=%d reserved=%d", c.Queue, c.Ready, c.Delayed, c.Reserved))
+	totalReady, totalDelayed, totalReserved := 0, 0, 0
+	for i, c := range m.jobs.counts {
+		totalReady += c.Ready
+		totalDelayed += c.Delayed
+		totalReserved += c.Reserved
+		if i < 3 {
+			lines = append(lines, fmt.Sprintf("%s %s %s %s", sanitizeLine(c.Queue), badge(fmt.Sprintf("ready=%d", c.Ready), colOK), badge(fmt.Sprintf("delayed=%d", c.Delayed), colWarn), badge(fmt.Sprintf("reserved=%d", c.Reserved), colInfo)))
+		}
 	}
+	if len(m.jobs.counts) > 3 {
+		lines = append(lines, fmt.Sprintf("… +%d queues", len(m.jobs.counts)-3))
+	}
+	lines = append(lines, fmt.Sprintf("totals ready=%d delayed=%d reserved=%d  failed: %d%s", totalReady, totalDelayed, totalReserved, len(m.jobs.failed), func() string {
+		if len(m.jobs.failed) == 100 {
+			return " (first 100)"
+		}
+		return ""
+	}()))
 	if m.jobs.view == "pending" {
 		if len(m.jobs.pending) == 0 {
 			lines = append(lines, "No pending jobs")
 		} else {
-			for i, j := range m.jobs.pending {
-				line := fmt.Sprintf("%d %s %s %s %d", j.ID, j.State, j.Queue, j.Class, j.Attempts)
-				if i == m.jobs.pendingCursor {
-					line = selectedStyle.Render(line)
-				}
-				lines = append(lines, line)
+			w := m.clipWidth()
+			if m.twoPane() {
+				w = (m.contentWidth() * 55) / 100
 			}
+			list := m.pendingTable(w)
+			lines = append(lines, list...)
 			if m.jobs.detail {
-				j := m.jobs.pending[m.jobs.pendingCursor]
-				lines = append(lines, "", fmt.Sprintf("id: %d\nqueue: %s\nstate: %s\nattempts: %d\nclass: %s\navailable: %s\ncreated: %s\nreserved: %v", j.ID, j.Queue, j.State, j.Attempts, j.Class, j.AvailableAt, j.CreatedAt, j.ReservedAt))
+				lines = m.addJobDetail(lines, m.pendingDetail())
 			}
 		}
 	} else if len(m.jobs.failed) == 0 {
 		lines = append(lines, "No failed jobs")
 	} else {
-		for i, j := range m.jobs.failed {
-			line := fmt.Sprintf("%d %s %s %s", j.ID, j.Queue, j.Class, j.FailedAt)
-			if i == m.jobs.failedCursor {
-				line = selectedStyle.Render(line)
-			}
-			lines = append(lines, line)
+		w := m.clipWidth()
+		if m.twoPane() {
+			w = (m.contentWidth() * 55) / 100
 		}
+		list := m.failedTable(w)
+		lines = append(lines, list...)
 		if m.jobs.detail {
-			j := m.jobs.failed[m.jobs.failedCursor]
-			lines = append(lines, "", fmt.Sprintf("id: %d\nuuid: %s\nconnection: %s\nqueue: %s\nclass: %s\nfailed_at: %s\nexception:\n%s", j.ID, j.UUID, j.Connection, j.Queue, j.Class, j.FailedAt, firstLines(j.Exception, 20)))
+			lines = m.addJobDetail(lines, m.failedDetail())
 		}
 	}
 	if m.jobs.status != "" {
-		lines = append(lines, "", m.jobs.status)
+		lines = append(lines, "", sanitizeLine(m.jobs.status))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// detailCompact is used when a single-column detail cannot coexist with the list.
+func (m Model) detailCompact() bool {
+	return m.jobs.detail && !m.twoPane() && m.height > 0 && m.bodyHeight() < 14
+}
+func (m Model) jobRows(overhead int) int {
+	rows := m.bodyHeight() - overhead
+	if m.jobs.detail {
+		rows -= max(3, m.bodyHeight()/2)
+	}
+	return max(1, rows)
+}
+func (m Model) pendingTable(w int) []string {
+	all := make([]int, len(m.jobs.pending))
+	for i := range all {
+		all[i] = i
+	}
+	overhead := 1 + min(3, len(m.jobs.counts)) + 1 + 1 + 1
+	if len(m.jobs.counts) > 3 {
+		overhead++
+	}
+	if m.jobs.status != "" {
+		overhead += 2
+	}
+	s, e := window(all, m.jobs.pendingCursor, m.jobRows(overhead))
+	out := []string{lipgloss.NewStyle().Foreground(colMuted).Bold(true).Render("ID  STATE     QUEUE  CLASS" + func() string {
+		if m.width >= 80 {
+			return "  TRIES"
+		}
+		return ""
+	}())}
+	for _, i := range all[s:e] {
+		j := m.jobs.pending[i]
+		stateText := sanitizeLine(j.State)
+		state := levelStyle(map[string]string{"ready": "INFO", "delayed": "WARNING", "reserved": "DEBUG"}[stateText]).Render(padRight(stateText, 9))
+		class := sanitizeLine(j.Class)
+		if w != 0 {
+			class = truncate(class, max(8, w-32))
+		}
+		line := fmt.Sprintf("%d  %s  %-8s  %s", j.ID, state, sanitizeLine(j.Queue), class)
+		if m.width >= 80 {
+			line += fmt.Sprintf("  %d", j.Attempts)
+		}
+		if i == m.jobs.pendingCursor {
+			line = selectedStyle.Render(line)
+		}
+		out = append(out, truncate(line, w))
+	}
+	return append(out, fmt.Sprintf("rows %d–%d of %d", s+1, e, len(all)))
+}
+func (m Model) failedTable(w int) []string {
+	all := make([]int, len(m.jobs.failed))
+	for i := range all {
+		all[i] = i
+	}
+	overhead := 1 + min(3, len(m.jobs.counts)) + 1 + 1 + 1
+	if len(m.jobs.counts) > 3 {
+		overhead++
+	}
+	if m.jobs.status != "" {
+		overhead += 2
+	}
+	s, e := window(all, m.jobs.failedCursor, m.jobRows(overhead))
+	out := []string{lipgloss.NewStyle().Foreground(colMuted).Bold(true).Render("ID  QUEUE  CLASS  FAILED AT")}
+	for _, i := range all[s:e] {
+		j := m.jobs.failed[i]
+		class := sanitizeLine(j.Class)
+		if w != 0 {
+			class = truncate(class, max(8, w-42))
+		}
+		line := fmt.Sprintf("%d  %-8s  %s  %s", j.ID, sanitizeLine(j.Queue), class, j.FailedAt.Format("2006-01-02 15:04"))
+		if i == m.jobs.failedCursor {
+			line = selectedStyle.Render(line)
+		}
+		out = append(out, truncate(line, w))
+	}
+	return append(out, fmt.Sprintf("rows %d–%d of %d", s+1, e, len(all)))
+}
+func (m Model) pendingDetail() string {
+	j := m.jobs.pending[m.jobs.pendingCursor]
+	return fmt.Sprintf("id: %d\nqueue: %s\nstate: %s\nattempts: %d\nclass: %s\navailable: %s\ncreated: %s\nreserved: %v", j.ID, sanitizeLine(j.Queue), sanitizeLine(j.State), j.Attempts, sanitizeLine(j.Class), j.AvailableAt, j.CreatedAt, j.ReservedAt)
+}
+func (m Model) failedDetail() string {
+	j := m.jobs.failed[m.jobs.failedCursor]
+	return fmt.Sprintf("id: %d\nqueue: %s\nuuid: %s\nconnection: %s\nclass: %s\nfailed_at: %s\nexception:\n%s", j.ID, sanitizeLine(j.Queue), sanitizeLine(j.UUID), sanitizeLine(j.Connection), sanitizeLine(j.Class), j.FailedAt, firstLines(sanitize(j.Exception), 20))
+}
+func (m Model) addJobDetail(lines []string, detail string) []string {
+	unlimited := m.width == 0
+	listW, detailW, inner := 0, 0, 0
+	if !unlimited {
+		w := m.contentWidth()
+		listW = w
+		detailW = w
+		if m.twoPane() {
+			listW = (w * 55) / 100
+			detailW = w - listW - 2
+		}
+		inner = max(1, detailW-2)
+	}
+	detailLines := []string{}
+	for _, line := range strings.Split(sanitize(detail), "\n") {
+		if unlimited {
+			detailLines = append(detailLines, line)
+		} else {
+			detailLines = append(detailLines, strings.Split(wrap(line, inner), "\n")...)
+		}
+	}
+	cap := max(3, m.bodyHeight()/2)
+	if m.detailCompact() {
+		cap = max(3, m.bodyHeight()-1-2-1)
+		if m.jobs.status != "" {
+			cap = max(1, cap-2)
+		}
+	}
+	if m.height == 0 {
+		cap = len(detailLines)
+	}
+	if len(detailLines) > cap {
+		if cap == 1 {
+			detailLines = []string{fmt.Sprintf("… %d more lines", len(detailLines))}
+		} else {
+			detailLines = append(detailLines[:cap-1], fmt.Sprintf("… %d more lines", len(detailLines)-(cap-1)))
+		}
+	}
+	st := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colMuted)
+	if !unlimited {
+		st = st.Width(inner)
+	}
+	box := st.Render(strings.Join(detailLines, "\n"))
+	if m.twoPane() {
+		left := make([]string, len(lines))
+		for i, line := range lines {
+			left[i] = padRight(truncate(line, listW), listW)
+		}
+		return []string{clipLines(lipgloss.JoinHorizontal(lipgloss.Top, strings.Join(left, "\n"), "  ", box), m.contentWidth())}
+	}
+	if m.detailCompact() {
+		return []string{box}
+	}
+	return append(lines, "", box)
 }
 func (m Model) handleJobsKey(k string) (Model, tea.Cmd) {
 	if k == "p" {

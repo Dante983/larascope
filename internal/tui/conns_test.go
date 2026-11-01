@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"larascope/internal/config"
 	"larascope/internal/conns"
@@ -203,5 +204,25 @@ func TestConnectionsView(t *testing.T) {
 	v := m.View()
 	if !strings.Contains(v, "DB") || !strings.Contains(v, "Connections") || strings.Contains(v, "No log file detected yet") {
 		t.Fatal("connections view")
+	}
+}
+
+func TestConnectionsWindowAndUnlimitedWidth(t *testing.T) {
+	m := New()
+	m.active = TabConnections
+	m.width, m.height = 80, 12
+	m.conns.results = make([]conns.Result, 30)
+	for i := range m.conns.results {
+		m.conns.results[i] = conns.Result{Name: fmt.Sprintf("connection-%d", i), Target: "host", OK: true}
+	}
+	v := m.View()
+	if len(strings.Split(v, "\n")) > 12 || !strings.Contains(v, "rows 1–") || !strings.Contains(v, "of 30") {
+		t.Fatalf("connection window missing or too tall: %q", v)
+	}
+	m.width, m.height = 0, 0
+	m.conns.results[0].Err = strings.Repeat("x", 150)
+	v = m.View()
+	if !strings.Contains(v, m.conns.results[29].Name) || !strings.Contains(v, strings.Repeat("x", 150)) {
+		t.Fatal("unlimited connections were clipped")
 	}
 }
