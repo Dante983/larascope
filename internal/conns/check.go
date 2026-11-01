@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,8 +68,19 @@ func FromSettings(s config.Settings) []Check {
 	}
 	redis := s.RedisHost != "" || s.QueueConnection == "redis"
 	if redis {
-		target := configHost(s.RedisHost, "127.0.0.1") + ":" + configHost(s.RedisPort, "6379")
-		out = append(out, tcp("Redis", target))
+		db, _ := strconv.Atoi(strings.TrimSpace(s.RedisDB))
+		if db < 0 {
+			db = 0
+		}
+		host := configHost(s.RedisHost, "127.0.0.1")
+		out = append(out, redisCheck("Redis", redisOpts{
+			Addr:       net.JoinHostPort(host, configHost(s.RedisPort, "6379")),
+			Username:   s.RedisUsername,
+			Password:   s.RedisPassword,
+			DB:         db,
+			TLS:        s.RedisTLS(),
+			ServerName: host,
+		}))
 	}
 	if s.RabbitHost != "" {
 		out = append(out, tcp("RabbitMQ", s.RabbitHost+":"+configHost(s.RabbitPort, "5672")))

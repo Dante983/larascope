@@ -45,10 +45,10 @@ Correlation stays local and read-only. In the Jobs **Failed** view, press `L` to
 Checks run concurrently with a three-second timeout and report latency. They auto-refresh every 10 seconds while this tab is active; `r` refreshes manually.
 
 - **Database:** a real MySQL/MariaDB or PostgreSQL ping.
-- **Redis:** a TCP dial when `REDIS_HOST` is set or `QUEUE_CONNECTION=redis`. Because Larascope defaults `REDIS_HOST` to `127.0.0.1`, this check normally always appears.
+- **Redis:** AUTH (when `REDIS_PASSWORD` is set, with optional `REDIS_USERNAME`), SELECT (`REDIS_DB`), and PING when `REDIS_HOST` is set or `QUEUE_CONNECTION=redis`. It uses TLS when `REDIS_SCHEME=tls`. Because Larascope defaults `REDIS_HOST` to `127.0.0.1`, this check normally always appears.
 - **RabbitMQ:** a TCP dial when `RABBITMQ_HOST` is set (default port `5672`).
 
-Redis and RabbitMQ checks verify only that the TCP port accepts connections.
+The Redis check verifies a Redis PONG; RabbitMQ verifies only that its TCP port accepts connections.
 
 ## Install
 
@@ -153,7 +153,10 @@ Larascope reads only `<project-root>/.env`; it does not read `config/*.php` or e
 | `DB_SOCKET` | parsed, but not used; Unix sockets are unsupported |
 | `LOG_CHANNEL` | loaded but not used for log-file discovery |
 | `QUEUE_CONNECTION` | loaded; influences the Redis health check only |
-| `REDIS_HOST`, `REDIS_PORT` | Redis TCP target; defaults `127.0.0.1:6379` |
+| `REDIS_HOST`, `REDIS_PORT` | Redis target; defaults `127.0.0.1:6379` |
+| `REDIS_USERNAME`, `REDIS_PASSWORD` | optional Redis AUTH credentials (`REDIS_PASSWORD=null` disables AUTH) |
+| `REDIS_DB` | optional Redis database to SELECT (non-zero values) |
+| `REDIS_SCHEME` | set to `tls` or `rediss` to use TLS for Redis |
 | `RABBITMQ_HOST`, `RABBITMQ_PORT` | RabbitMQ TCP target; port defaults to `5672` |
 
 Set `LARASCOPE_PHP` to choose the PHP command. It is split on whitespace and runs with the project root as its working directory; for example, `docker compose exec app php` is passed as a host command plus arguments. The default is `php`.
@@ -193,7 +196,7 @@ Logs and failed-job exceptions may contain sensitive data and are displayed in t
 - Only the first 100 newest jobs are loaded.
 - Log discovery ignores `LOG_CHANNEL`: it prefers `laravel.log`, then the newest `laravel-*.log`; other log files are not inspected.
 - No mouse support, export, remote profiles, SSH, or pending-job actions. Correlation covers only the last 5 MiB log tail and first 100 failed jobs; timestamps are naive wall-clock values, so app and database timezone differences can reduce time support.
-- Redis and RabbitMQ are TCP reachability checks only, not queue inspection.
+- Redis uses AUTH, SELECT, and PING only; it does not support `REDIS_URL`, cluster, sentinel, or Unix sockets. RabbitMQ is a TCP reachability check only; neither is queue inspection.
 - Windows binaries are built but untested; Artisan actions via `LARASCOPE_PHP` are unverified.
 
 ## Development and testing

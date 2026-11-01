@@ -48,6 +48,10 @@ type Settings struct {
 	DBPassword             string
 	DBSocket               string
 	RedisHost, RedisPort   string
+	RedisUsername          string
+	RedisPassword          string
+	RedisDB                string
+	RedisScheme            string
 	RabbitHost, RabbitPort string
 }
 
@@ -63,7 +67,11 @@ func SettingsFromEnv(env map[string]string) Settings {
 		DBDatabase:      env["DB_DATABASE"],
 		DBUsername:      env["DB_USERNAME"], DBPassword: env["DB_PASSWORD"], DBSocket: env["DB_SOCKET"],
 		RedisHost: valueOr(env["REDIS_HOST"], "127.0.0.1"), RedisPort: valueOr(env["REDIS_PORT"], "6379"),
-		RabbitHost: env["RABBITMQ_HOST"], RabbitPort: valueOr(env["RABBITMQ_PORT"], "5672"),
+		RedisUsername: redisNull(env["REDIS_USERNAME"]),
+		RedisPassword: redisNull(env["REDIS_PASSWORD"]),
+		RedisDB:       env["REDIS_DB"],
+		RedisScheme:   strings.ToLower(strings.TrimSpace(env["REDIS_SCHEME"])),
+		RabbitHost:    env["RABBITMQ_HOST"], RabbitPort: valueOr(env["RABBITMQ_PORT"], "5672"),
 	}
 }
 
@@ -91,6 +99,13 @@ func Load(start string) (Settings, error) {
 func valueOr(v, d string) string {
 	if v == "" {
 		return d
+	}
+	return v
+}
+
+func redisNull(v string) string {
+	if strings.EqualFold(strings.TrimSpace(v), "null") {
+		return ""
 	}
 	return v
 }
@@ -137,7 +152,13 @@ func (s Settings) PgDSN() string {
 	return u.String()
 }
 
-func (s Settings) Secrets() []string { return []string{s.DSN(), s.PgDSN(), s.DBPassword} }
+func (s Settings) Secrets() []string {
+	return []string{s.DSN(), s.PgDSN(), s.DBPassword, s.RedisPassword}
+}
+
+func (s Settings) RedisTLS() bool {
+	return s.RedisScheme == "tls" || s.RedisScheme == "rediss"
+}
 
 func Redact(v string, secrets ...string) string {
 	for _, x := range secrets {

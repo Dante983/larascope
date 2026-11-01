@@ -1,10 +1,12 @@
 package conns
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"github.com/Dante983/larascope/internal/config"
 	"net"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +31,13 @@ func TestFromSettingsAndTCP(t *testing.T) {
 	if len(checks) != 3 || checks[0].Name != "MySQL" || checks[1].Name != "Redis" || checks[2].Name != "RabbitMQ" {
 		t.Fatalf("checks=%#v", checks)
 	}
+	if checks[1].Target != "127.0.0.1:6379" {
+		t.Fatalf("redis target = %q", checks[1].Target)
+	}
+	custom := FromSettings(config.Settings{RedisHost: "host", RedisPort: "1234"})
+	if len(custom) != 1 || custom[0].Target != "host:1234" {
+		t.Fatalf("custom redis checks=%#v", custom)
+	}
 	pg := FromSettings(config.Settings{DBConnection: "pgsql", DBHost: "host"})
 	if len(pg) != 1 || pg[0].Name != "PostgreSQL" || pg[0].Target != "host:5432" {
 		t.Fatalf("postgres checks=%#v", pg)
@@ -48,5 +57,49 @@ func TestFromSettingsAndTCP(t *testing.T) {
 	defer l.Close()
 	if e := tcp("x", l.Addr().String()).Run(context.Background()); e != nil {
 		t.Fatal(e)
+	}
+}
+
+func TestRedisFromSettings(t *testing.T) {
+	var commands [][]string
+	addr := startFakeRedis(t, func(conn net.Conn) {
+		r := bufio.NewReader(conn)
+		for i := 0; i < 2; i++ {
+			cmd := readCmd(t, r)
+			commands = append(commands, cmd)
+			_, _ = conn.Write([]byte("+OK\r\n"))
+		}
+		cmd := readCmd(t, r)
+		commands = append(commands, cmd)
+		_, _ = conn.Write([]byte("+PONG\r\n"))
+	})
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := config.Settings{RedisHost: "127.0.0.1", RedisPort: port, RedisPassword: "s3cr3t", RedisDB: "1"}
+	results := Run(context.Background(), FromSettings(s), s.Secrets()...)
+	if len(results) != 1 || !results[0].OK {
+		t.Fatalf("results=%#v", results)
+	}
+	want := [][]string{{"AUTH", "s3cr3t"}, {"SELECT", "1"}, {"PING"}}
+	if !reflect.DeepEqual(commands, want) {
+		t.Fatalf("commands=%q, want %q", commands, want)
+	}
+
+	commands = nil
+	addr = startFakeRedis(t, func(conn net.Conn) {
+		r := bufio.NewReader(conn)
+		cmd := readCmd(t, r)
+		commands = append(commands, cmd)
+		_, _ = conn.Write([]byte("+PONG\r\n"))
+	})
+	_, port, err = net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results = Run(context.Background(), FromSettings(config.Settings{RedisHost: "127.0.0.1", RedisPort: port, RedisDB: "abc"}))
+	if len(results) != 1 || !results[0].OK || !reflect.DeepEqual(commands, [][]string{{"PING"}}) {
+		t.Fatalf("invalid DB results=%#v commands=%q", results, commands)
 	}
 }

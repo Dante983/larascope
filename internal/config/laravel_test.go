@@ -120,6 +120,31 @@ func TestSettingsFromEnv(t *testing.T) {
 	}
 }
 
+func TestRedisSettings(t *testing.T) {
+	null := SettingsFromEnv(map[string]string{"REDIS_PASSWORD": " null "})
+	if null.RedisPassword != "" {
+		t.Fatalf("RedisPassword = %q, want empty", null.RedisPassword)
+	}
+	s := SettingsFromEnv(map[string]string{
+		"REDIS_PASSWORD": "x",
+		"REDIS_USERNAME": "u",
+		"REDIS_DB":       "3",
+		"REDIS_SCHEME":   "TLS",
+	})
+	if s.RedisPassword != "x" || s.RedisUsername != "u" || s.RedisDB != "3" || s.RedisScheme != "tls" || !s.RedisTLS() {
+		t.Fatalf("redis settings = %#v", s)
+	}
+	found := false
+	for _, secret := range s.Secrets() {
+		if secret == "x" {
+			found = true
+		}
+	}
+	if !found || Redact("password=x", s.Secrets()...) != "password=***" {
+		t.Fatalf("Redis password was not redacted: %#v", s.Secrets())
+	}
+}
+
 func TestLoad(t *testing.T) {
 	t.Run("loads environment settings", func(t *testing.T) {
 		root := t.TempDir()
