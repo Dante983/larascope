@@ -6,7 +6,7 @@ Run Larascope locally from a Laravel project to inspect:
 
 - **Logs** — parsed Laravel/Monolog log entries.
 - **Jobs** — database-backed pending and failed jobs.
-- **Connections** — database, Redis, and RabbitMQ health checks.
+- **Connections** — database, Redis, ClickHouse, and RabbitMQ health checks.
 
 ## Features
 
@@ -46,9 +46,10 @@ Checks run concurrently with a three-second timeout and report latency. They aut
 
 - **Database:** a real MySQL/MariaDB or PostgreSQL ping.
 - **Redis:** AUTH (when `REDIS_PASSWORD` is set, with optional `REDIS_USERNAME`), SELECT (`REDIS_DB`), and PING when `REDIS_HOST` is set or `QUEUE_CONNECTION=redis`. It uses TLS when `REDIS_SCHEME=tls`. Because Larascope defaults `REDIS_HOST` to `127.0.0.1`, this check normally always appears.
+- **ClickHouse:** HTTP(S) `GET /ping` expecting `Ok.`, only when `CLICKHOUSE_HOST` is set; optional Basic auth; HTTPS (`CLICKHOUSE_SCHEME=https`) verifies certificates; three-second timeout; read-only.
 - **RabbitMQ:** a TCP dial when `RABBITMQ_HOST` is set (default port `5672`).
 
-The Redis check verifies a Redis PONG; RabbitMQ verifies only that its TCP port accepts connections.
+The Redis check verifies a Redis PONG; ClickHouse verifies only `/ping`; RabbitMQ verifies only that its TCP port accepts connections.
 
 ## Install
 
@@ -157,6 +158,11 @@ Larascope reads only `<project-root>/.env`; it does not read `config/*.php` or e
 | `REDIS_USERNAME`, `REDIS_PASSWORD` | optional Redis AUTH credentials (`REDIS_PASSWORD=null` disables AUTH) |
 | `REDIS_DB` | optional Redis database to SELECT (non-zero values) |
 | `REDIS_SCHEME` | set to `tls` or `rediss` to use TLS for Redis |
+| `CLICKHOUSE_HOST` | enables the ClickHouse `/ping` health check |
+| `CLICKHOUSE_PORT` | ClickHouse port; defaults to `8123` for HTTP or `8443` for HTTPS |
+| `CLICKHOUSE_USERNAME`, `CLICKHOUSE_USER` | optional Basic-auth username (`CLICKHOUSE_USERNAME` takes precedence) |
+| `CLICKHOUSE_PASSWORD` | optional Basic-auth password |
+| `CLICKHOUSE_SCHEME` | `http` (default) or `https`; HTTPS verifies certificates |
 | `RABBITMQ_HOST`, `RABBITMQ_PORT` | RabbitMQ TCP target; port defaults to `5672` |
 
 Set `LARASCOPE_PHP` to choose the PHP command. It is split on whitespace and runs with the project root as its working directory; for example, `docker compose exec app php` is passed as a host command plus arguments. The default is `php`.
@@ -173,7 +179,7 @@ The Jobs tab assumes Laravel's database queue tables (`jobs` and `failed_jobs`).
 - It never unserializes PHP payloads; it only decodes the JSON envelope to get job metadata such as the class/name. Correlation never parses serialized payload commands and runs only on already-loaded local data.
 - The four confirmed Artisan commands are the only writes Larascope initiates.
 - Database passwords and DSNs are redacted from displayed errors, and terminal control characters in log and job text are sanitized before rendering.
-- There is no telemetry. Other than configured database, Redis, and RabbitMQ hosts, Larascope makes no network calls (demo mode makes none).
+- There is no telemetry. Other than configured database, Redis, ClickHouse, and RabbitMQ hosts, Larascope makes no network calls (demo mode makes none).
 
 Logs and failed-job exceptions may contain sensitive data and are displayed in the terminal. Credentials from `.env` are used directly. Prefer local or development environments, and use a read-only database user where appropriate; the failed-job Artisan actions can mutate the database targeted by `.env`.
 
@@ -196,7 +202,7 @@ Logs and failed-job exceptions may contain sensitive data and are displayed in t
 - Only the first 100 newest jobs are loaded.
 - Log discovery ignores `LOG_CHANNEL`: it prefers `laravel.log`, then the newest `laravel-*.log`; other log files are not inspected.
 - No mouse support, export, remote profiles, SSH, or pending-job actions. Correlation covers only the last 5 MiB log tail and first 100 failed jobs; timestamps are naive wall-clock values, so app and database timezone differences can reduce time support.
-- Redis uses AUTH, SELECT, and PING only; it does not support `REDIS_URL`, cluster, sentinel, or Unix sockets. RabbitMQ is a TCP reachability check only; neither is queue inspection.
+- Redis uses AUTH, SELECT, and PING only; it does not support `REDIS_URL`, cluster, sentinel, or Unix sockets. ClickHouse uses `/ping` only; it does not support `CLICKHOUSE_URL`, custom CAs, or query inspection. RabbitMQ is a TCP reachability check only; none is queue inspection.
 - Windows binaries are built but untested; Artisan actions via `LARASCOPE_PHP` are unverified.
 
 ## Development and testing

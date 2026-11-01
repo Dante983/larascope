@@ -145,6 +145,32 @@ func TestRedisSettings(t *testing.T) {
 	}
 }
 
+func TestClickHouseSettings(t *testing.T) {
+	s := SettingsFromEnv(map[string]string{
+		"CLICKHOUSE_HOST":     " ch ",
+		"CLICKHOUSE_PORT":     " 9440 ",
+		"CLICKHOUSE_USER":     "fallback",
+		"CLICKHOUSE_USERNAME": "preferred",
+		"CLICKHOUSE_PASSWORD": "secret",
+		"CLICKHOUSE_SCHEME":   " HTTPS ",
+	})
+	if s.ClickHouseHost != "ch" || s.ClickHousePort != "9440" || s.ClickHouseUsername != "preferred" || s.ClickHousePassword != "secret" || !s.ClickHouseTLS() {
+		t.Fatalf("ClickHouse settings = %#v", s)
+	}
+	if got := SettingsFromEnv(map[string]string{"CLICKHOUSE_USER": "fallback"}); got.ClickHouseUsername != "fallback" {
+		t.Fatalf("CLICKHOUSE_USER fallback = %q", got.ClickHouseUsername)
+	}
+	found := false
+	for _, secret := range s.Secrets() {
+		if secret == s.ClickHousePassword {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ClickHouse password missing from secrets: %#v", s.Secrets())
+	}
+}
+
 func TestLoad(t *testing.T) {
 	t.Run("loads environment settings", func(t *testing.T) {
 		root := t.TempDir()

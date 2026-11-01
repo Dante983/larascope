@@ -52,6 +52,11 @@ type Settings struct {
 	RedisPassword          string
 	RedisDB                string
 	RedisScheme            string
+	ClickHouseHost         string
+	ClickHousePort         string
+	ClickHouseUsername     string
+	ClickHousePassword     string
+	ClickHouseScheme       string
 	RabbitHost, RabbitPort string
 }
 
@@ -67,11 +72,16 @@ func SettingsFromEnv(env map[string]string) Settings {
 		DBDatabase:      env["DB_DATABASE"],
 		DBUsername:      env["DB_USERNAME"], DBPassword: env["DB_PASSWORD"], DBSocket: env["DB_SOCKET"],
 		RedisHost: valueOr(env["REDIS_HOST"], "127.0.0.1"), RedisPort: valueOr(env["REDIS_PORT"], "6379"),
-		RedisUsername: redisNull(env["REDIS_USERNAME"]),
-		RedisPassword: redisNull(env["REDIS_PASSWORD"]),
-		RedisDB:       env["REDIS_DB"],
-		RedisScheme:   strings.ToLower(strings.TrimSpace(env["REDIS_SCHEME"])),
-		RabbitHost:    env["RABBITMQ_HOST"], RabbitPort: valueOr(env["RABBITMQ_PORT"], "5672"),
+		RedisUsername:      redisNull(env["REDIS_USERNAME"]),
+		RedisPassword:      redisNull(env["REDIS_PASSWORD"]),
+		RedisDB:            env["REDIS_DB"],
+		RedisScheme:        strings.ToLower(strings.TrimSpace(env["REDIS_SCHEME"])),
+		ClickHouseHost:     strings.TrimSpace(env["CLICKHOUSE_HOST"]),
+		ClickHousePort:     strings.TrimSpace(env["CLICKHOUSE_PORT"]),
+		ClickHouseUsername: valueOr(env["CLICKHOUSE_USERNAME"], env["CLICKHOUSE_USER"]),
+		ClickHousePassword: env["CLICKHOUSE_PASSWORD"],
+		ClickHouseScheme:   strings.ToLower(strings.TrimSpace(env["CLICKHOUSE_SCHEME"])),
+		RabbitHost:         env["RABBITMQ_HOST"], RabbitPort: valueOr(env["RABBITMQ_PORT"], "5672"),
 	}
 }
 
@@ -153,11 +163,15 @@ func (s Settings) PgDSN() string {
 }
 
 func (s Settings) Secrets() []string {
-	return []string{s.DSN(), s.PgDSN(), s.DBPassword, s.RedisPassword}
+	return []string{s.DSN(), s.PgDSN(), s.DBPassword, s.RedisPassword, s.ClickHousePassword}
 }
 
 func (s Settings) RedisTLS() bool {
 	return s.RedisScheme == "tls" || s.RedisScheme == "rediss"
+}
+
+func (s Settings) ClickHouseTLS() bool {
+	return s.ClickHouseScheme == "https"
 }
 
 func Redact(v string, secrets ...string) string {

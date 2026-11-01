@@ -82,6 +82,16 @@ func FromSettings(s config.Settings) []Check {
 			ServerName: host,
 		}))
 	}
+	if s.ClickHouseHost != "" {
+		scheme := "http"
+		if s.ClickHouseTLS() {
+			scheme = "https"
+		}
+		out = append(out, clickhouseCheck("ClickHouse", clickhouseOpts{
+			Scheme: scheme, Host: s.ClickHouseHost, Port: s.ClickHousePort,
+			Username: s.ClickHouseUsername, Password: s.ClickHousePassword,
+		}))
+	}
 	if s.RabbitHost != "" {
 		out = append(out, tcp("RabbitMQ", s.RabbitHost+":"+configHost(s.RabbitPort, "5672")))
 	}

@@ -45,6 +45,10 @@ func TestFromSettingsAndTCP(t *testing.T) {
 	if got := FromSettings(config.Settings{DBConnection: "sqlite"}); len(got) != 0 {
 		t.Fatalf("sqlite checks=%#v", got)
 	}
+	clickhouse := FromSettings(config.Settings{ClickHouseHost: "ch"})
+	if len(clickhouse) != 1 || clickhouse[0].Name != "ClickHouse" || clickhouse[0].Target != "http://ch:8123" {
+		t.Fatalf("clickhouse checks=%#v", clickhouse)
+	}
 	bad := config.Settings{DBConnection: "pgsql", DBHost: "127.0.0.1", DBPort: "1", DBDatabase: "app", DBUsername: "user", DBPassword: "p@ss w/rd"}
 	r := Run(context.Background(), FromSettings(bad), bad.Secrets()...)
 	if len(r) != 1 || r[0].Err == "" || strings.Contains(r[0].Err, bad.DBPassword) {
