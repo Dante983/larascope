@@ -101,8 +101,12 @@ func TestConnectionsShiftTabAndNumberKeys(t *testing.T) {
 		t.Fatal("jobs shift tab")
 	}
 	m, cmd = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
-	if m.active != TabConnections || !m.conns.loading || !m.conns.connsTicking || cmd == nil {
+	if m.active != TabOverview || cmd != nil {
 		t.Fatal("logs shift tab")
+	}
+	m, cmd = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if m.active != TabConnections || !m.conns.loading || !m.conns.connsTicking || cmd == nil {
+		t.Fatal("overview shift tab")
 	}
 	for _, key := range []string{"1", "2"} {
 		m.conns.loading = false
@@ -121,7 +125,7 @@ func TestConnectionsTickRearmSingle(t *testing.T) {
 	if cmd == nil || !m.conns.connsTicking {
 		t.Fatal("initial entry")
 	}
-	m.active = TabLogs
+	m.active = TabOverview
 	m.conns.loading = false
 	m, cmd = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
 	if cmd == nil || !m.conns.connsTicking {
@@ -132,7 +136,7 @@ func TestConnectionsTickRearmSingle(t *testing.T) {
 	if cmd == nil || !updated.(Model).conns.loading {
 		t.Fatal("tick while loading")
 	}
-	m.active = TabLogs
+	m.active = TabOverview
 	updated, cmd = m.Update(connsTickMsg{})
 	m = updated.(Model)
 	if cmd != nil || m.conns.connsTicking {

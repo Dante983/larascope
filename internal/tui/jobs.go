@@ -21,7 +21,7 @@ type confirmAction struct {
 	run   func() tea.Cmd
 }
 type jobsState struct {
-	loaded                      bool
+	loaded, loading             bool
 	err                         error
 	pending                     []jobs.PendingRow
 	counts                      []jobs.QueueCount
@@ -32,6 +32,15 @@ type jobsState struct {
 	status                      string
 	detail                      bool
 }
+
+func (m *Model) startJobsLoad() tea.Cmd {
+	if !m.liveAllowed() || m.settings.Root == "" || m.jobs.loading {
+		return nil
+	}
+	m.jobs.loading = true
+	return loadJobsCmd(m.settings)
+}
+
 type jobsLoadedMsg struct {
 	pending []jobs.PendingRow
 	counts  []jobs.QueueCount

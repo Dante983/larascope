@@ -90,7 +90,7 @@ func TestViewMatrix(t *testing.T) {
 		tab     Tab
 		jobView string
 	}
-	cases := []tabCase{{"logs", TabLogs, ""}, {"jobs-pending", TabJobs, "pending"}, {"jobs-failed", TabJobs, "failed"}, {"conns", TabConnections, ""}}
+	cases := []tabCase{{"logs", TabLogs, ""}, {"jobs-pending", TabJobs, "pending"}, {"jobs-failed", TabJobs, "failed"}, {"conns", TabConnections, ""}, {"overview", TabOverview, ""}}
 	for _, w := range []int{40, 41, 80, 100, 119, 120, 160} {
 		for _, h := range []int{10, 11, 12, 13, 24, 50} {
 			for _, c := range cases {

@@ -7,6 +7,7 @@ Run Larascope locally from a Laravel project to inspect:
 - **Logs** — parsed Laravel/Monolog log entries.
 - **Jobs** — database-backed pending and failed jobs.
 - **Connections** — database, Redis, ClickHouse, and RabbitMQ health checks.
+- **Overview** — one-screen summary of project config, log errors, queue counts and service health with shortcuts into the other tabs.
 
 ## Features
 
@@ -50,6 +51,10 @@ Checks run concurrently with a three-second timeout and report latency. They aut
 - **RabbitMQ:** a TCP dial when `RABBITMQ_HOST` is set (default port `5672`).
 
 The Redis check verifies a Redis PONG; ClickHouse verifies only `/ping`; RabbitMQ verifies only that its TCP port accepts connections.
+
+### Overview (tab 4)
+
+Overview summarizes already-loaded project configuration, log severity counts, database-queue counts, and service health without showing secrets. On first open it loads Jobs and Connections once using the same read-only queries as those tabs; it does not auto-refresh. Log counts reflect the last 5 MiB tail, failed jobs reflect the first 100 rows, and only database queues are inspected. Demo mode uses sample data and disables Overview refresh.
 
 ## Install
 
@@ -130,17 +135,18 @@ go run ./cmd/larascope -demo
 go run ./cmd/larascope --version
 ```
 
-Demo mode uses offline sample data and can run anywhere; it needs no Laravel project, database, Artisan executable, or network access. Reload, follow, and connection refresh are disabled. Job actions report `demo: no action performed`. `-h` prints Go's default usage.
+Demo mode uses offline sample data and can run anywhere; it needs no Laravel project, database, Artisan executable, or network access. Reload, follow, connection refresh, and Overview refresh are disabled. Job actions report `demo: no action performed`. `-h` prints Go's default usage.
 
 ## Keyboard controls
 
 | Area | Keys |
 | --- | --- |
-| Global | `tab` / `shift+tab` next/previous tab; `1` / `2` / `3` select tab; `?` help; `q` or `ctrl+c` quit |
+| Global | `tab` / `shift+tab` next/previous tab; `1` / `2` / `3` / `4` select tab; `?` help; `q` or `ctrl+c` quit |
 | Logs | `up`/`k`, `down`/`j` move; `g`/`G` first/last in list; `pgup`/`pgdown` page; `enter` detail; `esc` back; `l` level; `/` search (`enter` apply, `esc` clear); `s` group; `f` follow; `r` reload |
 | Log detail | `up`/`down` move to previous/next entry; `enter` or `esc` back; `J` matching failed job |
 | Jobs | `p` pending/failed; arrows or `j`/`k` move; `enter` detail; `esc` back; `L` related logs (Failed); `r` reload; `R`, `d`, `A`, `F` actions above |
 | Connections | arrows or `j`/`k` move; `r` refresh |
+| Overview | `l` logs; `e` error logs; `f` failed jobs; `p` pending jobs; `c` connections; `r` reload all |
 
 ## Configuration
 

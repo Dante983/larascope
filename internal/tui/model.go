@@ -21,9 +21,10 @@ const (
 	TabLogs Tab = iota
 	TabJobs
 	TabConnections
+	TabOverview
 )
 
-var tabNames = []string{"Logs", "Jobs", "Connections"}
+var tabNames = []string{"Logs", "Jobs", "Connections", "Overview"}
 
 type Model struct {
 	active          Tab
@@ -36,6 +37,7 @@ type Model struct {
 	cursor          int
 	logErr          error
 	logLoaded       bool
+	logSum          logSummary
 	logFilter       logs.Filter
 	searching       bool
 	searchInput     string
@@ -75,6 +77,9 @@ func (m Model) WithConfig(s config.Settings, err error) Model {
 
 func (m Model) WithLogs(entries []logs.Entry, err error) Model {
 	m.entries, m.logErr, m.logLoaded = entries, err, true
+	if err == nil {
+		m.logSum = summarizeLogs(m.entries)
+	}
 	m.recompute()
 	m.cursor = max(0, len(entries)-1)
 	m.detail = false
@@ -143,6 +148,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case jobsLoadedMsg:
 		m.jobs.loaded = true
+		m.jobs.loading = false
 		m.jobs.pending, m.jobs.counts, m.jobs.failed, m.jobs.err = msg.pending, msg.counts, msg.failed, msg.err
 		m.jobs.pendingCursor = clampCursor(m.jobs.pendingCursor, len(m.jobs.pending))
 		m.jobs.failedCursor = clampCursor(m.jobs.failedCursor, len(m.jobs.failed))
@@ -224,6 +230,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 		}
+		if m.active == TabOverview && !m.showHelp {
+			switch msg.String() {
+			case "l", "e", "f", "p", "c", "r":
+				nm, cmd, _ := m.jumpOverview(msg.String())
+				return nm, cmd
+			}
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -244,6 +257,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "3":
 			m.active = TabConnections
+			return m, m.tabLoadCmd()
+		case "4":
+			m.active = TabOverview
 			return m, m.tabLoadCmd()
 		case "r":
 			if m.demo {
@@ -342,6 +358,7 @@ func (m Model) reloadLogs(msg logsLoadedMsg) Model {
 	oldEntriesEmpty := len(m.entries) == 0
 	wasLast := m.cursor >= len(m.entries)-1
 	m.entries = msg.entries
+	m.logSum = summarizeLogs(m.entries)
 	m.corr = correlationState{}
 	m.recompute()
 	m.logErr = nil
@@ -410,6 +427,21 @@ func (m *Model) tabLoadCmd() tea.Cmd {
 		}
 		return cmd
 	}
+	if m.active == TabOverview {
+		if m.settings.Root == "" {
+			return nil
+		}
+		var cmds []tea.Cmd
+		if !m.jobs.loaded {
+			cmds = append(cmds, m.startJobsLoad())
+		}
+		if len(m.conns.results) == 0 {
+			cmds = append(cmds, m.startConnsLoad())
+		}
+		if len(cmds) > 0 {
+			return tea.Batch(cmds...)
+		}
+	}
 	return nil
 }
 
@@ -468,6 +500,13 @@ func (m Model) footer() string {
 			hints = "up/down: move  r: refresh  ?: help  q: quit"
 		}
 	}
+	if m.active == TabOverview {
+		if m.demo {
+			hints = "l logs  e errors  f failed jobs  p pending jobs  c connections  ?: help"
+		} else {
+			hints = "l logs  e errors  f failed jobs  p pending jobs  c connections  r refresh  ?: help"
+		}
+	}
 	if m.jobs.confirm != nil {
 		if m.jobs.confirm.need == "" {
 			suffix := "  y=yes, any other key=cancel"
@@ -508,7 +547,7 @@ func (m Model) centered() bool {
 
 func (m Model) body() string {
 	if m.showHelp {
-		help := "Global\n" + keyHint("tab", "next tab") + "\n" + keyHint("1/2/3", "select tab") + "\n" + keyHint("?", "toggle help") + "\n" + keyHint("q", "quit") + "\n\nUse larascope --demo for offline sample data.\n\nLogs\nup/k, down/j: move in logs\ng/G: first/last entry\npgup/pgdown: page up/down\nenter: toggle entry detail\nesc: back to list\n"
+		help := "Global\n" + keyHint("tab", "next tab") + "\n" + keyHint("1/2/3/4", "select tab") + "\n" + keyHint("?", "toggle help") + "\n" + keyHint("q", "quit") + "\n\nUse larascope --demo for offline sample data.\n\nLogs\nup/k, down/j: move in logs\ng/G: first/last entry\npgup/pgdown: page up/down\nenter: toggle entry detail\nesc: back to list\n"
 		if m.demo {
 			help += "l: level filter  /: search  s: group\nreload and follow disabled in demo\n"
 		} else {
@@ -518,6 +557,10 @@ func (m Model) body() string {
 		if !m.demo {
 			help += "  r: refresh"
 		}
+		help += "\n\nOverview\nl/e/f/p/c: open Logs / error logs / failed jobs / pending jobs / Connections"
+		if !m.demo {
+			help += "\nr: reload everything"
+		}
 		return lipgloss.NewStyle().Width(max(1, m.contentWidth()-4)).Border(lipgloss.RoundedBorder()).BorderForeground(colMuted).Padding(0, 1).Render(help)
 	}
 
@@ -526,6 +569,8 @@ func (m Model) body() string {
 		return m.jobsBody()
 	case TabConnections:
 		return m.connsBody()
+	case TabOverview:
+		return m.overviewBody()
 	default:
 		return m.logsBody()
 	}

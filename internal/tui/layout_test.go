@@ -86,7 +86,7 @@ func TestClipBody(t *testing.T) {
 
 func TestDemoViewLayoutBounds(t *testing.T) {
 	for _, size := range [][2]int{{40, 10}, {80, 24}, {120, 30}} {
-		for _, tab := range []Tab{TabLogs, TabJobs, TabConnections} {
+		for _, tab := range []Tab{TabLogs, TabJobs, TabConnections, TabOverview} {
 			m := NewDemo()
 			m.width, m.height, m.active = size[0], size[1], tab
 			for _, variant := range []string{"plain", "help"} {

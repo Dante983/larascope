@@ -178,7 +178,7 @@ func TestDemoViewsAndSafeRefresh(t *testing.T) {
 	for _, size := range [][2]int{{120, 30}, {80, 24}, {40, 10}} {
 		m := NewDemo()
 		m.width, m.height = size[0], size[1]
-		for _, tab := range []Tab{TabLogs, TabJobs, TabConnections} {
+		for _, tab := range []Tab{TabLogs, TabJobs, TabConnections, TabOverview} {
 			m.active = tab
 			view := m.View()
 			if !strings.Contains(view, "DEMO") {
@@ -212,10 +212,14 @@ func TestDemoJobsAreLeftAlignedAndRefreshNoticeIsGlobal(t *testing.T) {
 			}
 		}
 	}
-	for _, tab := range []Tab{TabLogs, TabJobs, TabConnections} {
+	for _, tab := range []Tab{TabLogs, TabJobs, TabConnections, TabOverview} {
 		m := NewDemo()
 		m.active = tab
-		for _, key := range []string{"r", "f"} {
+		keys := []string{"r", "f"}
+		if tab == TabOverview {
+			keys = []string{"r"}
+		}
+		for _, key := range keys {
 			updated, cmd := m.Update(runeKey(key))
 			m = updated.(Model)
 			if cmd != nil || !strings.Contains(m.View(), "refresh disabled") {
@@ -435,7 +439,7 @@ func TestDemoDestructiveFlows(t *testing.T) {
 		_ = confirmDemoAction(t, tc.key)
 	}
 
-	for _, tab := range []Tab{TabLogs, TabJobs, TabConnections} {
+	for _, tab := range []Tab{TabLogs, TabJobs, TabConnections, TabOverview} {
 		m := NewDemo()
 		m.active = tab
 		m = walkDemo(t, m)
@@ -451,7 +455,7 @@ func TestDemoFixturesImmutable(t *testing.T) {
 	pendingBefore, countsBefore, failedBefore := demoJobs()
 	connsBefore := demoConns()
 	var models []Model
-	for _, tab := range []Tab{TabLogs, TabJobs, TabConnections} {
+	for _, tab := range []Tab{TabLogs, TabJobs, TabConnections, TabOverview} {
 		m := NewDemo()
 		m.active = tab
 		assertDemoUnchanged(t, fmt.Sprintf("%v baseline", tab), m, logsBefore, pendingBefore, countsBefore, failedBefore, connsBefore)

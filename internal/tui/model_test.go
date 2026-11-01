@@ -26,7 +26,7 @@ func runeKey(key string) tea.KeyMsg {
 
 func TestTabNavigationWraps(t *testing.T) {
 	m := New()
-	for _, want := range []Tab{TabJobs, TabConnections, TabLogs} {
+	for _, want := range []Tab{TabJobs, TabConnections, TabOverview, TabLogs} {
 		m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyTab})
 		if m.active != want {
 			t.Fatalf("active tab = %d, want %d", m.active, want)
@@ -34,13 +34,13 @@ func TestTabNavigationWraps(t *testing.T) {
 	}
 
 	m, _ = updateWithKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
-	if m.active != TabConnections {
-		t.Fatalf("active tab = %d, want %d", m.active, TabConnections)
+	if m.active != TabOverview {
+		t.Fatalf("active tab = %d, want %d", m.active, TabOverview)
 	}
 }
 
 func TestNumberKeysSelectTabs(t *testing.T) {
-	for key, want := range map[string]Tab{"1": TabLogs, "2": TabJobs, "3": TabConnections} {
+	for key, want := range map[string]Tab{"1": TabLogs, "2": TabJobs, "3": TabConnections, "4": TabOverview} {
 		m, _ := updateWithKey(t, New(), runeKey(key))
 		if m.active != want {
 			t.Errorf("key %q selected tab %d, want %d", key, m.active, want)
